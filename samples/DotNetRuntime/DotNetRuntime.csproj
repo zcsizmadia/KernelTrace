@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Sample: .NET CLR GC, exception, and JIT event tracer using KernelTrace eBPF uprobes.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KernelTrace\KernelTrace.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AdditionalFiles Include="..\..\native\probes\dotnet_runtime.bpf.c" BuildAction="EbpfSource" />
+  </ItemGroup>
+</Project>

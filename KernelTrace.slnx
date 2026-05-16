@@ -1,0 +1,49 @@
+<Solution>
+
+  <!-- ── Library projects ──────────────────────────────────────────────── -->
+  <Folder Name="/src/">
+    <Project Path="src/KernelTrace/KernelTrace.csproj" />
+    <Project Path="src/KernelTrace.SourceGenerators/KernelTrace.SourceGenerators.csproj" />
+    <Project Path="src/KernelTrace.AspNetCore/KernelTrace.AspNetCore.csproj" />
+  </Folder>
+
+  <!-- ── Test projects ─────────────────────────────────────────────────── -->
+  <Folder Name="/tests/">
+    <Project Path="tests/KernelTrace.Tests/KernelTrace.Tests.csproj" />
+    <Project Path="tests/KernelTrace.Generators.Tests/KernelTrace.Generators.Tests.csproj" />
+    <Project Path="tests/KernelTrace.IntegrationTests/KernelTrace.IntegrationTests.csproj" />
+  </Folder>
+
+  <!-- ── Sample applications ───────────────────────────────────────────── -->
+  <Folder Name="/samples/">
+    <Project Path="samples/NetworkMonitor/NetworkMonitor.csproj" />
+    <Project Path="samples/SchedulerProfiler/SchedulerProfiler.csproj" />
+    <Project Path="samples/SecurityGuard/SecurityGuard.csproj" />
+    <Project Path="samples/FileIoMonitor/FileIoMonitor.csproj" />
+    <Project Path="samples/MemoryProfiler/MemoryProfiler.csproj" />
+    <Project Path="samples/BlockIoAnalyzer/BlockIoAnalyzer.csproj" />
+    <Project Path="samples/DotNetRuntime/DotNetRuntime.csproj" />
+    <Project Path="samples/ContainerMonitor/ContainerMonitor.csproj" />
+    <Project Path="samples/KernelInternals/KernelInternals.csproj" />
+  </Folder>
+
+  <!-- ── Benchmarks ────────────────────────────────────────────────────── -->
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/KernelTrace.Benchmarks/KernelTrace.Benchmarks.csproj" />
+  </Folder>
+
+  <!-- ── Solution-level files shown in IDE file tree ───────────────────── -->
+  <Folder Name="/Solution Files/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="native/scripts/build-and-install.sh" />
+    <File Path="native/scripts/gen-vmlinux.sh" />
+  </Folder>
+
+</Solution>

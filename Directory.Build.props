@@ -1,0 +1,101 @@
+<Project>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Common Properties — applied to every project in the repo
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>                     <!-- opt-in per project -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>                 <!-- missing XML doc is a warning -->
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       NuGet Package Metadata (shared across all publishable projects)
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup>
+    <Authors>Zoltan Csizmadia</Authors>
+    <Company>Zoltan Csizmadia</Company>
+    <Copyright>Copyright © 2026 Zoltan Csizmadia</Copyright>
+    <!-- SPDX license expression — NuGet validates this against the SPDX list. -->
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- README.md included at the package root so nuget.org renders it. -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/zcsizmadia/kerneltrace</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ebpf;linux;kernel;tracing;observability;prometheus;opentelemetry;kprobe;tracepoint;ringbuffer</PackageTags>
+    <PackageProjectUrl>https://github.com/zcsizmadia/kerneltrace</PackageProjectUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Pack README and LICENSE into every packable project.
+       The ItemGroup is guarded by IsPackable so samples/tests/benchmarks
+       do not pick up these items (they set IsPackable=false above).
+       ═══════════════════════════════════════════════════════════════ -->
+  <ItemGroup Condition="'$(IsPackable)' != 'false'">
+    <!-- README.md — shown on the NuGet package page. -->
+    <None Include="$(MSBuildThisFileDirectory)README.md"
+          Pack="true"
+          PackagePath="\"
+          Visible="false" />
+    <!-- LICENSE — embedded in the package alongside the SPDX expression. -->
+    <None Include="$(MSBuildThisFileDirectory)LICENSE"
+          Pack="true"
+          PackagePath="\"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Version — single source of truth
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup>
+    <VersionPrefix>1.0.0</VersionPrefix>
+    <VersionSuffix Condition="'$(CI)' != 'true'">local</VersionSuffix>
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Test Projects — auto-detected by path convention
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup Condition="$(MSBuildProjectFullPath.Contains('\tests\')) or $(MSBuildProjectFullPath.Contains('/tests/'))">
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1416;IDE0044</NoWarn>  <!-- Test naming + ConfigureAwait in tests -->
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Sample Projects — auto-detected by path convention
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup Condition="$(MSBuildProjectFullPath.Contains('\samples\')) or $(MSBuildProjectFullPath.Contains('/samples/'))">
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CA2007;CA1416;CA1305;CA1310;CA1050;CA1848;IDE0011;MA0048;MA0051</NoWarn>
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Benchmark Projects
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup Condition="$(MSBuildProjectFullPath.Contains('\benchmarks\')) or $(MSBuildProjectFullPath.Contains('/benchmarks/'))">
+    <IsPackable>false</IsPackable>
+    <Optimize>true</Optimize>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CA1001;CA1707;IDE0011;IDE0044;MA0048;MA0051</NoWarn>
+  </PropertyGroup>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Deterministic builds in CI
+       ═══════════════════════════════════════════════════════════════ -->
+  <PropertyGroup Condition="'$(CI)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+</Project>

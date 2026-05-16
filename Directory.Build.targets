@@ -1,0 +1,64 @@
+<Project>
+
+  <!--
+    Directory.Build.targets — repo-wide MSBuild targets
+    =====================================================
+    This file is imported automatically by the SDK for every project under
+    this directory.  It handles the local-development copy of native assets.
+
+    ── Why a <Copy> task instead of a <Content> item? ──────────────────────────
+    <Content CopyToOutputDirectory="Always" Pack="true"> on the same file
+    creates two pack entries for the same content and triggers NU5100/NU5103.
+
+    Using a <Copy> task inside a <Target> is completely invisible to
+    'dotnet pack': the packer only inspects MSBuild items (None, Content, etc.)
+    with Pack="true", never arbitrary Target side-effects.
+
+    The <None Pack="true"> items in KernelTrace.csproj handle what goes into
+    the .nupkg.  This file handles what goes into the local output folder.
+
+    ── Why NETCoreSdkRuntimeIdentifier? ────────────────────────────────────────
+    $(NETCoreSdkRuntimeIdentifier) is set by the .NET SDK to the RID of the
+    machine running the build (e.g. linux-x64).  It is always available when
+    the SDK is loaded and correctly reflects the current host without any
+    runtime reflection or property-function calls.
+  -->
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <_KTNativeDir>$(MSBuildThisFileDirectory)runtimes/$(NETCoreSdkRuntimeIdentifier)/native/</_KTNativeDir>
+  </PropertyGroup>
+
+  <!--
+    CopyKernelTraceNativeAssets
+    ───────────────────────────
+    Copies libkerneltrace.so and all *.bpf.o probe objects from
+    runtimes/<RID>/native/ to the project's output directory after every build
+    of an executable project on Linux.
+
+    Conditions:
+      OutputType == Exe        — only executables need the native assets at runtime
+      IsOSPlatform('Linux')    — the .so only exists on Linux; skip silently elsewhere
+      NETCoreSdkRuntimeIdentifier != ''  — SDK must be resolved
+      Exists(libkerneltrace.so) — skipped gracefully before 'build-and-install.sh' runs
+  -->
+  <Target Name="CopyKernelTraceNativeAssets"
+          AfterTargets="Build"
+          Condition="'$(OutputType)' == 'Exe'
+                     And $([MSBuild]::IsOSPlatform('Linux'))
+                     And '$(NETCoreSdkRuntimeIdentifier)' != ''
+                     And Exists('$(_KTNativeDir)libkerneltrace.so')">
+
+    <ItemGroup>
+      <!-- Capture .so + all probe objects in one glob -->
+      <_KTNativeAssets Include="$(_KTNativeDir)libkerneltrace.so;$(_KTNativeDir)*.bpf.o" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_KTNativeAssets)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true" />
+
+    <Message Text="[KernelTrace] Copied native assets → $(OutputPath)"
+             Importance="low" />
+  </Target>
+
+</Project>

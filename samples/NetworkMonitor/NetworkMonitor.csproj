@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Description>Sample: real-time network connection monitor using KernelTrace eBPF.</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KernelTrace\KernelTrace.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The eBPF source for struct auto-generation -->
+    <AdditionalFiles Include="..\..\native\probes\network_monitor.bpf.c" BuildAction="EbpfSource" />
+  </ItemGroup>
+</Project>

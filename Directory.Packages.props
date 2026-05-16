@@ -1,0 +1,46 @@
+<Project>
+  <!--
+    Central Package Management — all NuGet versions live here.
+    Use `<PackageReference Include="Foo" />` in .csproj (no Version= needed).
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup Label="Microsoft.Extensions">
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.8" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions"             Version="10.0.8" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions"             Version="10.0.8" />
+    <PackageVersion Include="Microsoft.Extensions.Options"                           Version="10.0.8" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions"  Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="Roslyn / Source Generators">
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp"   Version="5.3.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="ASP.NET Core">
+    <PackageVersion Include="Microsoft.AspNetCore.App.Ref" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="Testing — TUnit 1.44.*">
+    <PackageVersion Include="TUnit"                  Version="1.44.39" />
+    <PackageVersion Include="TUnit.Core"             Version="1.44.39" />
+    <PackageVersion Include="TUnit.Assertions"       Version="1.44.39" />
+    <PackageVersion Include="TUnit.Engine"           Version="1.44.39" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1"  />
+    <PackageVersion Include="coverlet.collector"     Version="10.0.0"  />
+  </ItemGroup>
+
+  <ItemGroup Label="Benchmarks">
+    <PackageVersion Include="BenchmarkDotNet"                    Version="0.15.8" />
+    <PackageVersion Include="BenchmarkDotNet.Diagnostics.Windows" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup Label="Code Quality">
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.85" />
+  </ItemGroup>
+
+</Project>

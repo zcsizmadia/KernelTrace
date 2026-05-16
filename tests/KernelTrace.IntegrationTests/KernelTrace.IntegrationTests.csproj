@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>KernelTrace.IntegrationTests</RootNamespace>
+    <!--
+      Integration tests require a real Linux kernel with CAP_BPF.
+      They are skipped automatically on non-Linux or when the .bpf.o
+      probe files are absent.  No special build configuration is needed:
+      'dotnet test' on Linux will execute them; CI on other OSes will skip.
+    -->
+    <NoWarn>$(NoWarn);CA2007</NoWarn>
+    <!-- All integration tests skip on non-Linux (require eBPF/CAP_BPF).
+         Exit code 8 = "no tests ran" is acceptable here.
+         minimum-expected-tests 0 prevents exit code 8 when all tests are skipped. -->
+    <TestingPlatformCommandLineArguments>--minimum-expected-tests 0</TestingPlatformCommandLineArguments>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KernelTrace\KernelTrace.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

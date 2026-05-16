@@ -1,0 +1,17 @@
+global using System;
+global using System.Buffers;
+global using System.Collections.Generic;
+global using System.Runtime.CompilerServices;
+global using System.Runtime.InteropServices;
+global using System.Threading;
+global using System.Threading.Channels;
+global using System.Threading.Tasks;
+global using TUnit.Core;
+global using TUnit.Assertions;
+global using TUnit.Assertions.Extensions;
+global using KernelTrace.Exceptions;
+global using KernelTrace.Interop;
+global using KernelTrace.Probes;
+global using KernelTrace.RingBuffer;
+global using KernelTrace.Sessions;
+global using KernelTrace.Tests.Fakes;

@@ -1,0 +1,101 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>KernelTrace</RootNamespace>
+    <AssemblyName>KernelTrace</AssemblyName>
+    <Description>
+      High-performance, in-process Linux kernel tracing for .NET via eBPF.
+      Stream kernel telemetry (kprobes, tracepoints, ring buffers) directly
+      into your C# application with zero-copy, NativeAOT-friendly APIs.
+    </Description>
+    <PackageTags>$(PackageTags);kprobe;uprobes;sched;syscall</PackageTags>
+  </PropertyGroup>
+
+  <!-- ── Runtime: only meaningful on Linux, but the assembly ships cross-platform ── -->
+  <PropertyGroup>
+    <!-- Suppress the "only runs on Linux" warning at package restore time.
+         Users on non-Linux get PlatformNotSupportedException at runtime for
+         the native interop paths; everything else (types, source generators)
+         compiles fine on any OS. -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
+  </PropertyGroup>
+
+  <!-- ── Native assets bundled in the NuGet package ────────────────────────
+       Source: runtimes/<RID>/native/  (populated by native/scripts/build-and-install.sh)
+       Pack destination: runtimes/<RID>/native/  (the standard .NET RID convention)
+
+       Rules that prevent double-packing warnings (NU5100 / NU5103):
+         • Pack="true" + PackagePath  →  goes into the .nupkg at the exact path
+         • Visible="false"            →  hidden from Solution Explorer
+         • NO CopyToOutputDirectory   →  the packer never sees this via the output folder
+         • Local dev copy is done by Directory.Build.targets via a <Copy> task,
+           which is invisible to 'dotnet pack'. ── -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-x64\native\libkerneltrace.so"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\linux-x64\native\libkerneltrace.so')"
+          Pack="true"
+          PackagePath="runtimes/linux-x64/native/libkerneltrace.so"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-arm64\native\libkerneltrace.so"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\linux-arm64\native\libkerneltrace.so')"
+          Pack="true"
+          PackagePath="runtimes/linux-arm64/native/libkerneltrace.so"
+          Visible="false" />
+    <!-- eBPF probe objects — copied alongside the .so by build-and-install.sh.
+         Each .bpf.o is a compiled BPF ELF object that the consumer passes as
+         SessionOptions.ProbePath at runtime. -->
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-x64\native\*.bpf.o"
+          Pack="true"
+          PackagePath="runtimes/linux-x64/native/"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-arm64\native\*.bpf.o"
+          Pack="true"
+          PackagePath="runtimes/linux-arm64/native/"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- ── Package references ── -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Meziantou.Analyzer">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- ── Source Generator reference (self-referencing for dogfooding) ── -->
+  <ItemGroup>
+    <ProjectReference Include="..\KernelTrace.SourceGenerators\KernelTrace.SourceGenerators.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- ── Suppress analyzer rules that became errors after package upgrades ──
+       MA0048: multiple types per file (style/org, not correctness)
+       MA0051: method too long (style)
+       CA1848/CA1873: use LoggerMessage delegates (performance hints)
+       CA1805: explicit default init (style)
+       IDE0011: add braces (style)
+       CA1711: identifier suffix convention (style) -->
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);MA0048;MA0051;CA1848;CA1873;CA1805;IDE0011;CA1711</NoWarn>
+  </PropertyGroup>
+
+  <!-- ── Test / benchmark visibility ── (INativeInterop, MappedRingBuffer,
+       KernelTraceMetrics.AddReceived, etc.) without making them public. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>KernelTrace.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>KernelTrace.Generators.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>KernelTrace.Benchmarks</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+</Project>
