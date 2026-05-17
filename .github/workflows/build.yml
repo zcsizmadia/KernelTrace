@@ -124,7 +124,7 @@ jobs:
           # the RequiresBpfAttribute skip guard.
           # Only Linux non-container runners are expected to have
           # the necessary capabilities for integration tests.
-          sudo env PATH="$PATH" dotnet test tests/KernelTrace.IntegrationTests \
+          sudo env PATH="$PATH" CI="${CI:-}" GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" dotnet test tests/KernelTrace.IntegrationTests \
             -c Release --no-build --no-restore
 
       - name: Upload native library artifact
