@@ -113,9 +113,10 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          # Cannot run integration tests without sudo, only run generic tests
-          dotnet test -c Release --no-build --no-restore /tests/KernelTrace.Tests/
-          dotnet test -c Release --no-build --no-restore /tests/KernelTrace.Generators.Tests/
+          # Integration tests skip automatically without CAP_BPF (no sudo here).
+          # --minimum-expected-tests 0 in the integration-tests csproj prevents
+          # exit code 8 when all eBPF tests are skipped.
+          dotnet test -c Release --no-build --no-restore
 
       - name: Integration tests
         # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
