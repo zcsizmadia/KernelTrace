@@ -38,6 +38,11 @@ static Task<KernelTraceSession> CreateAsync(
 IAsyncEnumerable<T> ReadAsync<T>(CancellationToken ct = default)
     where T : unmanaged;
 
+// Stream raw byte buffers — use when events have a dynamic schema
+// or when a single .bpf.o emits multiple event types.
+// Each Memory<byte> is a view of a pooled buffer; do not retain it beyond the loop body.
+IAsyncEnumerable<ReadOnlyMemory<byte>> ReadRawAsync(CancellationToken ct = default);
+
 // Zero-copy callback API. The handler receives a `ref readonly T`
 // backed by the mmap'd ring buffer — do not cache the reference.
 Task ProcessAsync<T>(
@@ -81,6 +86,7 @@ Configuration for a `KernelTraceSession`.
 | `PollTimeoutMs` | `int` | `100` | epoll_wait timeout per iteration (ms). |
 | `PollingThreadAffinity` | `long` | `0` | CPU affinity bitmask (0 = no affinity). |
 | `PollingThreadPriority` | `ThreadPriority` | `AboveNormal` | Priority of the polling thread. |
+| `CurrentProcessOnly` | `bool` | `false` | Emit events only from the current process (filtered in-kernel). |
 | `ValidateStructLayouts` | `bool` | `true` | Validate struct sizes against BTF on first read. |
 | `TimeProvider` | `TimeProvider` | `TimeProvider.System` | For testability. |
 

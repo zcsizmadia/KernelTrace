@@ -76,17 +76,37 @@ at compile time.
 using KernelTrace.Sessions;
 using KernelTrace.Probes;
 
+// Set up Ctrl+C cancellation
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
 await using var session = await KernelTraceSession.CreateAsync(new SessionOptions
 {
     ProbePath = "/usr/share/kerneltrace/probes/network_monitor.bpf.o",
-    Probes    = [new TracepointSpec { Category = "syscalls", Name = "sys_enter_connect" }],
+    // Both enter AND exit tracepoints are required — the BPF program records
+    // the entry timestamp and emits the event on exit.
+    Probes    =
+    [
+        new TracepointSpec { Category = "syscalls", Name = "sys_enter_connect" },
+        new TracepointSpec { Category = "syscalls", Name = "sys_exit_connect"  },
+    ],
 });
 
-await foreach (var ev in session.ReadAsync<SocketConnectEvent>())
+try
 {
-    Console.WriteLine($"PID={ev.Pid}  dst={ev.DstIp}:{ev.DstPort}");
+    await foreach (var ev in session.ReadAsync<SocketConnectEvent>(cts.Token))
+    {
+        Console.WriteLine($"PID={ev.Pid}  dst={ev.DstIp}:{ev.DstPort}");
+    }
 }
+catch (OperationCanceledException) { }  // normal exit via Ctrl+C
 ```
+
+> **Why both enter and exit?**  Many BPF programs use the enter hook to save
+> syscall arguments (e.g. the destination address) and the exit hook to emit
+> the event because the return value is only available on exit.  Always check
+> the `SEC(...)` annotations in your `.bpf.c` source and include a
+> `TracepointSpec` for every section the program defines.
 
 ### 4. Zero-copy callback API
 
@@ -134,6 +154,74 @@ var token = await session.AttachAsync(new KprobeSpec { FunctionName = "tcp_retra
 await session.DetachAsync(token);
 ```
 
+## Current-process-only mode
+
+When you only care about your own application's kernel activity, set
+`CurrentProcessOnly = true`.  The eBPF program will drop events from all other
+processes **inside the kernel**, before they ever reach the ring buffer:
+
+```csharp
+new SessionOptions
+{
+    ProbePath          = "fs_io.bpf.o",
+    Probes             = [ ... ],
+    CurrentProcessOnly = true,   // massive reduction in ring-buffer pressure
+}
+```
+
+This is especially useful for high-volume probes like `sys_enter_read` and
+`sys_enter_write`, which fire for every process on the system.
+
+> Loading eBPF programs still requires `CAP_BPF` + `CAP_PERFMON` regardless of
+> this setting.
+
+## Raw event streaming
+
+Use `ReadRawAsync()` when a single `.bpf.o` emits events of multiple types
+(distinguished by a discriminator field) or when the layout is dynamic:
+
+```csharp
+await foreach (var raw in session.ReadRawAsync(cts.Token))
+{
+    // raw is a ReadOnlyMemory<byte> — do not retain it beyond the loop body.
+    byte eventType = raw.Span[0];
+    switch (eventType)
+    {
+        case 0: HandleFoo(raw.Span); break;
+        case 1: HandleBar(raw.Span); break;
+    }
+}
+```
+
+For single-event-type probes prefer the type-safe `ReadAsync<T>`.
+
+## Cancellation and clean shutdown
+
+All streaming methods accept a `CancellationToken`.  The recommended pattern:
+
+```csharp
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;   // prevent process kill on first Ctrl+C
+    cts.Cancel();
+};
+
+try
+{
+    await foreach (var ev in session.ReadAsync<MyEvent>(cts.Token))
+    {
+        // process event
+    }
+}
+catch (OperationCanceledException) { }   // normal exit — do not rethrow
+
+await session.DisposeAsync();
+```
+
+`OperationCanceledException` is the expected, normal result of cancellation.
+Catch it at the outermost event loop and do not rethrow it.
+
 ## ASP.NET Core Integration
 
 ```csharp
@@ -174,4 +262,5 @@ builder.Services.AddOpenTelemetry()
 
 - [Architecture](architecture.md) — ring buffer internals, threading model
 - [Probe Reference](probes.md) — all built-in probe categories
+- [Samples](samples.md) — annotated walk-through of all 9 sample programs
 - [API Reference](api-reference.md) — full public surface
