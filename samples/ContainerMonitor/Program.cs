@@ -52,6 +52,8 @@ const int EventSize  = HeaderSize + 256;
 
 string[] typeNames = ["EXECVE", "CONNECT", "FORK", "EXIT"];
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     if (rawEvent.Length < HeaderSize)
@@ -80,6 +82,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 
     Console.WriteLine($"{time,-12} {containerName,-32} {pid,-8} {comm,-16} {evName,-8} {detail}");
 }
+}
+catch (OperationCanceledException) { }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 

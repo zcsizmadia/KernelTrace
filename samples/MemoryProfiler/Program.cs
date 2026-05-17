@@ -72,6 +72,8 @@ const int KmallocMinSize = 8 + 8 + 8 + 8 + 8 + 4 + 4 + 16 + 1;
 // page_alloc_event layout: ts(8) pfn(8) order(4) gfp(4) pid(4) is_free(1)
 const int PageAllocSize  = 8 + 8 + 4 + 4 + 4 + 1;
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     if (rawEvent.Length < PageAllocSize)
@@ -122,5 +124,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         }
     }
 }
+}
+catch (OperationCanceledException) { }
 
-await reportTask.ConfigureAwait(false);
+try { await reportTask.ConfigureAwait(false); }
+catch (OperationCanceledException) { }

@@ -264,6 +264,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             T value;
             using (record)
             {
@@ -303,6 +304,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadOnlyMemory<byte> copy;
             using (record)
             {
@@ -335,6 +337,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using (record)
             {
                 if (record.Length < Unsafe.SizeOf<T>())

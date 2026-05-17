@@ -30,6 +30,7 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     Probes =
     [
         new TracepointSpec { Category = "syscalls", Name = "sys_enter_connect" },
+        new TracepointSpec { Category = "syscalls", Name = "sys_exit_connect" },
     ],
     ChannelCapacity = 16_384,
     PollTimeoutMs   = 50,
@@ -40,6 +41,8 @@ Console.WriteLine();
 Console.WriteLine($"{"TIME",-12} {"PID",-8} {"COMM",-16} {"SRC IP",-18} {"DST IP",-18} {"DST PORT",-10} ALERT");
 Console.WriteLine(new string('─', 90));
 
+try
+{
 await foreach (var ev in session.ReadAsync<SocketConnectEvent>(cts.Token))
 {
     string srcIp  = FormatIp(ev.SrcIp);
@@ -64,6 +67,8 @@ await foreach (var ev in session.ReadAsync<SocketConnectEvent>(cts.Token))
         $"{time,-12} {ev.Pid,-8} {comm,-16} {srcIp,-18} {dstIp,-18} {ev.DstPort,-10} {alert}");
     Console.ResetColor();
 }
+}
+catch (OperationCanceledException) { }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

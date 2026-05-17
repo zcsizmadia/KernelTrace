@@ -37,6 +37,8 @@ var reportTimer = new Timer(_ => PrintReport(offCpuNs), null,
     TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
 // Foreground: consume events zero-copy via ProcessAsync.
+try
+{
 await session.ProcessAsync<SchedSwitchEvent>(
     handler: (in SchedSwitchEvent ev, CancellationToken ct) =>
     {
@@ -57,6 +59,8 @@ await session.ProcessAsync<SchedSwitchEvent>(
         return ValueTask.CompletedTask;
     },
     cancellationToken: cts.Token);
+}
+catch (OperationCanceledException) { }
 
 await reportTimer.DisposeAsync();
 

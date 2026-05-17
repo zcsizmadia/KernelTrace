@@ -48,6 +48,8 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     PollTimeoutMs   = 10,
 });
 
+try
+{
 await foreach (var ev in session.ReadAsync<ExecveEvent>(cts.Token))
 {
     unsafe
@@ -75,6 +77,8 @@ await foreach (var ev in session.ReadAsync<ExecveEvent>(cts.Token))
         }
     }
 }
+}
+catch (OperationCanceledException) { }
 
 Console.WriteLine($"\nMonitoring stopped. Total alerts: {alertCount}");
 

@@ -123,6 +123,8 @@ Console.WriteLine(new string('─', 80));
 const int GcMin  = 8 + 8 + 4 + 4 + 4 + 1 + 16;
 const int RwMin  = 8 + 8 + 4 + 4 + 16; // exc / method share same layout
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     string time = DateTime.Now.ToString("HH:mm:ss.fff");
@@ -153,6 +155,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         Console.WriteLine($"{time,-12} {pid,-8} {comm,-16} CLR event @ 0x{ptr:x}");
     }
 }
+}
+catch (OperationCanceledException) { }
 
 return 0;
 
