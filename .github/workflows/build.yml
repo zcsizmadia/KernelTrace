@@ -22,10 +22,11 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y git make gcc pkg-config libelf-dev libcap-dev zlib1g-dev binutils-dev llvm
           git clone --depth 1 --recurse-submodules https://github.com/libbpf/bpftool.git
-          cd bpftool/src
+          pushd bpftool/src
           #git -C /tmp/bpftool submodule update --init --depth 1
           #make -C /tmp/bpftool/src -j$(nproc)
-          sudo make install
+          sudo make install -j$(nproc)
+          popd
           # BTF dump reads /sys/kernel/btf/vmlinux — no kernel-version match needed.
           bpftool btf dump file /sys/kernel/btf/vmlinux format c \
             > native/probes/vmlinux.h
