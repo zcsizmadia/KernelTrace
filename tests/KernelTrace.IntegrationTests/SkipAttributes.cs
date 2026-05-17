@@ -34,11 +34,21 @@ internal sealed class RequiresBpfAttribute : SkipAttribute
 
     public override async Task<bool> ShouldSkip(TestRegisteredContext context)
     {
-        if (!OperatingSystem.IsLinux()) return true;
-        if (!IntegrationTestHelpers.HasBpfCapability()) return true;
+        if (!OperatingSystem.IsLinux())
+        {
+            return true;
+        }
+
+        if (!IntegrationTestHelpers.HasBpfCapability())
+        {
+            return true;
+        }
 
         string? probePath = IntegrationTestHelpers.FindProbeFile(_probeName);
-        if (probePath is null) return true;
+        if (probePath is null)
+        {
+            return true;
+        }
 
         // Attempt a trial load to catch kernel-incompatible probes before the
         // test body runs.  Only skip for known "this kernel can't run this probe"
