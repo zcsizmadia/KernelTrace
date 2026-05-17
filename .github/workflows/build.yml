@@ -107,7 +107,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          dotnet restore #-r ${{ matrix.runtimeId }}
+          dotnet restore
           dotnet build -c Release --no-restore
 
       - name: Test
@@ -116,7 +116,9 @@ jobs:
           # Integration tests skip automatically without CAP_BPF (no sudo here).
           # --minimum-expected-tests 0 in the integration-tests csproj prevents
           # exit code 8 when all eBPF tests are skipped.
-          dotnet test -c Release --no-build --no-restore
+          #dotnet test -c Release --no-build --no-restore
+          dotnet run -c Release --no-build --project tests/KernelTrace.Tests
+          dotnet run -c Release --no-build --project tests/KernelTrace.Generator.Tests
 
       - name: Integration tests
         # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
