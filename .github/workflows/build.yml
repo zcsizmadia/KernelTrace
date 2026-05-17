@@ -79,7 +79,7 @@ jobs:
         run: |
           if [ -f /etc/alpine-release ]; then
             apk add --no-cache \
-              build-base cmake clang git curl tar bash icu pkgconf libbpf-dev
+              build-base cmake clang git curl tar bash icu pkgconf libbpf-dev linux-headers
           else
             sudo apt-get update -y
             sudo apt-get install -y libbpf-dev clang
