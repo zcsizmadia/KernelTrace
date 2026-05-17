@@ -19,22 +19,16 @@ jobs:
 
       - name: Generate vmlinux.h from kernel BTF
         run: |
-          #find /usr | grep 'bpftool' || true
-          bpftool version || true
-          /usr/sbin/bpftool version || true
-          bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
-          # sudo apt-get update -y
-          # # libelf-dev + zlib1g-dev are the only build deps for bpftool + its
-          # # bundled libbpf. We build from source because Ubuntu 24.04 removed
-          # # bpftool from linux-tools-* packages and /usr/sbin/bpftool is a
-          # # wrapper that fails on Azure/cloud runner kernels (exit 2).
-          # sudo apt-get install -y libelf-dev zlib1g-dev
-          # git clone --depth 1 https://github.com/libbpf/bpftool.git /tmp/bpftool
-          # git -C /tmp/bpftool submodule update --init --depth 1
-          # make -C /tmp/bpftool/src -j$(nproc)
-          # # BTF dump reads /sys/kernel/btf/vmlinux — no kernel-version match needed.
-          # /tmp/bpftool/src/bpftool btf dump file /sys/kernel/btf/vmlinux format c \
-          #   > native/probes/vmlinux.h
+          sudo apt-get update -y
+          sudo apt-get install -y libelf-dev zlib1g-dev
+          git clone --depth 1 --recurse-submodules https://github.com/libbpf/bpftool.git
+          cd bpftool/src
+          #git -C /tmp/bpftool submodule update --init --depth 1
+          #make -C /tmp/bpftool/src -j$(nproc)
+          sudo make install
+          # BTF dump reads /sys/kernel/btf/vmlinux — no kernel-version match needed.
+          bpftool btf dump file /sys/kernel/btf/vmlinux format c \
+            > native/probes/vmlinux.h
 
       - name: Upload vmlinux.h
         uses: actions/upload-artifact@v7
