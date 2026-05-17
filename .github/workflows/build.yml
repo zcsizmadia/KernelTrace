@@ -23,7 +23,7 @@ jobs:
           # linux-tools-generic always pulls a real bpftool binary for the Ubuntu
           # generic kernel. BTF dump only reads /sys/kernel/btf/vmlinux — it does
           # not make kernel-version-specific calls — so any recent bpftool works.
-          sudo apt-get install -y linux-tools-generic
+          sudo apt-get install -y linux-tools-common linux-tools-generic linux-tools-$(uname -r)
           # Bypass the /usr/sbin/bpftool wrapper (which checks for the running
           # kernel's tools and may warn/fail on Azure/cloud kernels) by finding
           # the actual binary installed under /usr/lib/linux-tools/.
