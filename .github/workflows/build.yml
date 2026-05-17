@@ -17,14 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install bpftool
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y bpftool || \
-            sudo apt-get install -y linux-tools-$(uname -r) linux-tools-generic
-
       - name: Generate vmlinux.h from kernel BTF
         run: |
+          sudo apt-get update -y
+          # Prefer the kernel-specific package (covers Azure/GCP/AWS runner kernels);
+          # fall back to the standalone bpftool package on stock kernels.
+          sudo apt-get install -y linux-tools-$(uname -r) || \
+            sudo apt-get install -y bpftool
+          # linux-tools installs bpftool under a versioned directory; add it to PATH.
+          export PATH="/usr/lib/linux-tools/$(uname -r):$PATH"
           bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
 
       - name: Upload vmlinux.h
