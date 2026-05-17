@@ -20,7 +20,7 @@ jobs:
       - name: Generate vmlinux.h from kernel BTF
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y linux-tools-common #linux-tools-generic linux-tools-$(uname -r)
+          sudo apt-get install -y linux-tools-common linux-tools-azure linux-cloud-tools-azure
           bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
 
       - name: Upload vmlinux.h
