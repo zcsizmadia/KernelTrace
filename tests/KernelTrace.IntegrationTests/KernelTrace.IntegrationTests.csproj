@@ -13,10 +13,6 @@
       'dotnet test' on Linux will execute them; CI on other OSes will skip.
     -->
     <NoWarn>$(NoWarn);CA2007</NoWarn>
-    <!-- All integration tests skip on non-Linux (require eBPF/CAP_BPF).
-         Exit code 8 = "no tests ran" is acceptable here.
-         minimum-expected-tests 0 prevents exit code 8 when all tests are skipped. -->
-    <TestingPlatformCommandLineArguments>--minimum-expected-tests 0</TestingPlatformCommandLineArguments>
   </PropertyGroup>
 
   <ItemGroup>
