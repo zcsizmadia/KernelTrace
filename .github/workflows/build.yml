@@ -13,7 +13,7 @@ concurrency:
 jobs:
   generate-vmlinux:
     runs-on: ubuntu-latest
-    name: generate vmlinux.h
+    name: Generate vmlinux.h
     steps:
       - uses: actions/checkout@v6
 
@@ -57,7 +57,7 @@ jobs:
     needs: [generate-vmlinux]
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    name: build - (${{ matrix.runtimeId }})
+    name: Build - (${{ matrix.runtimeId }})
 
     steps:
       # action/checkout fails on Alpine Arm64 without this fix
@@ -136,6 +136,7 @@ jobs:
   build-nupkg:
     needs: [build]
     runs-on: ubuntu-latest
+    name: Build NuGet package
     if: always() && needs.build.result == 'success'
     steps:
       - uses: actions/checkout@v6
