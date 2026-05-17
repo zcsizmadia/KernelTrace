@@ -96,21 +96,38 @@ jobs:
         run: |
           cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
           cmake --build native/build --parallel $(nproc)
-          # Copy the shared library to the RID-based path that .NET's native
-          # resolver expects: runtimes/<rid>/native/libkerneltrace.so
+          # Copy all native outputs to the RID-based path consumed by .NET's
+          # native resolver and by the NuGet pack in the build-nupkg job.
           mkdir -p runtimes/${{ matrix.runtimeId }}/native
           cp native/build/libkerneltrace.so runtimes/${{ matrix.runtimeId }}/native/
+          cp native/build/*.bpf.o runtimes/${{ matrix.runtimeId }}/native/
 
       - name: Build
         shell: bash
         run: |
           dotnet restore #-r ${{ matrix.runtimeId }}
-          dotnet build -c Release --no-restore #-r ${{ matrix.runtimeId }}
+          dotnet build -c Release --no-restore
 
       - name: Test
         shell: bash
         run: |
-          dotnet test -c Release --no-build --no-restore #-r ${{ matrix.runtimeId }}
+          # Cannot run integration tests without sudo, only run generic tests
+          dotnet test -c Release --no-build --no-restore /tests/KernelTrace.Tests/
+          dotnet test -c Release --no-build --no-restore /tests/KernelTrace.Generators.Tests/
+
+      - name: Integration tests
+        # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
+        #if: matrix.runtimeId == 'linux-x64' || matrix.runtimeId == 'linux-arm64'
+        if: runner.os == "Linux" && matrix.container == null
+        shell: bash
+        run: |
+          # Preserve the runner's PATH so dotnet is found under sudo.
+          # CAP_BPF + CAP_PERFMON are available to root, which satisfies
+          # the RequiresBpfAttribute skip guard.
+          # Only Linux non-container runners are expected to have
+          # the necessary capabilities for integration tests.
+          sudo env PATH="$PATH" dotnet test tests/KernelTrace.IntegrationTests \
+            -c Release --no-build --no-restore
 
       - name: Upload native library artifact
         uses: actions/upload-artifact@v7
