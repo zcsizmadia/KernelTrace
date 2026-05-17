@@ -96,6 +96,10 @@ jobs:
         run: |
           cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
           cmake --build native/build --parallel $(nproc)
+          # Copy the shared library to the RID-based path that .NET's native
+          # resolver expects: runtimes/<rid>/native/libkerneltrace.so
+          mkdir -p runtimes/${{ matrix.runtimeId }}/native
+          cp native/build/libkerneltrace.so runtimes/${{ matrix.runtimeId }}/native/
 
       - name: Build
         shell: bash
