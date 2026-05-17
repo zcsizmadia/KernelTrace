@@ -43,8 +43,6 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     Probes =
     [
         new TracepointSpec { Category = "syscalls", Name = "sys_enter_execve" },
-        // Also hook the kernel function for richer data (filename from kernel VA).
-        new KprobeSpec { FunctionName = "do_execve" },
     ],
     ChannelCapacity = 32_768,
     PollTimeoutMs   = 10,

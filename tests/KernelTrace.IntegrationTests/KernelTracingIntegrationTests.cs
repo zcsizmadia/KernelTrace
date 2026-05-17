@@ -92,9 +92,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -215,9 +215,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -289,9 +289,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -344,9 +344,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -432,9 +432,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -514,9 +514,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);
@@ -644,7 +644,8 @@ public sealed class KernelTracingIntegrationTests
             for (int i = 0; i < 20 && !cts.Token.IsCancellationRequested; i++)
             {
                 _ = File.Exists("/proc/self/status");
-                await Task.Delay(10, cts.Token).ConfigureAwait(false);
+                try { await Task.Delay(10, cts.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
             }
         });
 
@@ -663,9 +664,9 @@ public sealed class KernelTracingIntegrationTests
             cts.Token)
             .ContinueWith(t =>
             {
-                if (t.Exception?.InnerException is not OperationCanceledException)
+                if (!t.IsCanceled && t.Exception?.InnerException is not OperationCanceledException)
                 {
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception!.InnerException ?? t.Exception!).Throw();
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(t.Exception?.InnerException ?? t.Exception!).Throw();
                 }
             })
             .ConfigureAwait(false);

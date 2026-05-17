@@ -103,7 +103,7 @@ internal static partial class NativeMethods
     /// into the <c>kt_tgid_filter</c> BPF array map.  Pass 0 to clear the filter.
     /// </summary>
     [LibraryImport(LibName, EntryPoint = "kt_session_set_tgid_filter")]
-    internal static partial NativeError SetTgidFilter(nint session, uint tgid);
+    internal static partial void SetTgidFilter(nint session, uint tgid, out NativeError error);
 }
 
 // ── Error descriptor struct ──────────────────────────────────────────────────

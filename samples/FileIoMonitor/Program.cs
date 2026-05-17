@@ -78,8 +78,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 
     string time = DateTime.Now.ToString("HH:mm:ss.fff");
 
-    // fs_open_event is the larger struct (has filename[]).
-    if (rawEvent.Length >= FsOpenEvent.MinSize)
+    // fs_open_event is the larger struct (has filename[]); rw events are 64 bytes.
+    if (rawEvent.Length >= FsOpenEvent.TotalSize)
     {
         var ev = FsOpenEvent.FromBytes(rawEvent);
         string comm = ReadNullTerminated(ev.Comm.Span, 16);
@@ -127,6 +127,7 @@ static string ReadNullTerminated(ReadOnlySpan<byte> span, int maxLen)
 readonly struct FsOpenEvent
 {
     public const int MinSize = 8 + 8 + 4 + 4 + 4 + 4 + 4 + 16; // without filename
+    public const int TotalSize = MinSize + 256;              // 308 — full struct with filename
 
     public readonly ulong TimestampNs;
     public readonly ulong LatencyNs;
@@ -164,7 +165,7 @@ readonly struct FsOpenEvent
 /// <summary>Mirrors fs_rw_event from fs_io.bpf.c.</summary>
 readonly struct FsRwEvent
 {
-    public const int Size = 8 + 8 + 4 + 4 + 4 + 8 + 1 + 16;
+    public const int Size = 64; // sizeof(fs_rw_event): includes 4-byte pad between fd and bytes
 
     public readonly ulong TimestampNs;
     public readonly ulong LatencyNs;
@@ -184,6 +185,7 @@ readonly struct FsRwEvent
         uint  pid = System.Runtime.InteropServices.MemoryMarshal.Read<uint>(s[off..]); off += 4;
         uint  tgid= System.Runtime.InteropServices.MemoryMarshal.Read<uint>(s[off..]); off += 4;
         int   fd  = System.Runtime.InteropServices.MemoryMarshal.Read<int>(s[off..]); off += 4;
+        off += 4; // 4-byte alignment padding before __s64 bytes
         long  b   = System.Runtime.InteropServices.MemoryMarshal.Read<long>(s[off..]); off += 8;
         byte  w   = s[off]; off++;
         return new FsRwEvent(ts, lat, pid, tgid, fd, b, w, data.Slice(off, 16));

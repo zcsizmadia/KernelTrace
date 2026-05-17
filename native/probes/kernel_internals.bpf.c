@@ -20,6 +20,41 @@
 
 #include "common.h"
 
+/*
+ * trace_event_raw_cpu_frequency / trace_event_raw_cpu_idle
+ *
+ * These tracepoint context structs are generated dynamically by the kernel and
+ * are NOT present in the BTF/vmlinux.h dump.  We define them manually here,
+ * matching the layout reported by:
+ *   /sys/kernel/tracing/events/power/cpu_frequency/format
+ *   /sys/kernel/tracing/events/power/cpu_idle/format
+ *
+ * Layout (both structs are identical):
+ *   offset 0:  u16 common_type
+ *   offset 2:  u8  common_flags
+ *   offset 3:  u8  common_preempt_count
+ *   offset 4:  s32 common_pid
+ *   offset 8:  u32 state
+ *   offset 12: u32 cpu_id
+ */
+struct trace_event_raw_cpu_frequency {
+    __u16 common_type;
+    __u8  common_flags;
+    __u8  common_preempt_count;
+    __s32 common_pid;
+    __u32 state;   /* CPU frequency in kHz */
+    __u32 cpu_id;
+};
+
+struct trace_event_raw_cpu_idle {
+    __u16 common_type;
+    __u8  common_flags;
+    __u8  common_preempt_count;
+    __s32 common_pid;
+    __u32 state;   /* idle level; 0xFFFFFFFF = leaving idle */
+    __u32 cpu_id;
+};
+
 /* ── Event types ─────────────────────────────────────────────────────────── */
 
 #define KI_IRQ_ENTRY     0

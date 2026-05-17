@@ -46,7 +46,15 @@ install(FILES libkerneltrace/kerneltrace.h
 # ── eBPF probe compilation ────────────────────────────────────────────────────
 if(KERNELTRACE_BUILD_PROBES)
     find_program(CLANG clang REQUIRED)
-    find_program(BPFTOOL bpftool)
+
+    # ── vmlinux.h — must be provided externally (CI: vmlinux-h artifact; ─────
+    # ── local: run native/scripts/gen-vmlinux.sh) ────────────────────────────
+    set(VMLINUX_H "${CMAKE_CURRENT_SOURCE_DIR}/probes/vmlinux.h")
+    if(NOT EXISTS "${VMLINUX_H}")
+        message(FATAL_ERROR
+            "vmlinux.h not found at ${VMLINUX_H}.\n"
+            "Run native/scripts/gen-vmlinux.sh to generate it from the running kernel.")
+    endif()
 
     set(BPF_ARCH "bpf")
     set(BPF_CFLAGS
@@ -80,6 +88,7 @@ if(KERNELTRACE_BUILD_PROBES)
             COMMAND ${CLANG} ${BPF_CFLAGS} -c ${CMAKE_CURRENT_SOURCE_DIR}/${SRC} -o ${OBJ}
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SRC}
                     ${CMAKE_CURRENT_SOURCE_DIR}/probes/common.h
+                    "${VMLINUX_H}"
             COMMENT "Compiling eBPF probe: ${NAME}"
         )
         list(APPEND PROBE_OBJECTS ${OBJ})

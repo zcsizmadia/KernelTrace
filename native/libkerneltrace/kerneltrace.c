@@ -19,6 +19,7 @@
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <linux/bpf.h>
 
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
@@ -63,10 +64,12 @@ struct kt_attachment {
 /* ── Session lifecycle ───────────────────────────────────────────────────── */
 
 KT_EXPORT
-kt_error_t kt_session_load(const char *path, kt_session_t **out)
+kt_session_t *kt_session_load(const char *path, kt_error_t *error_out)
 {
-    if (!path || !out)
-        return kt_error_from_errno(-EINVAL);
+    if (!path) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return NULL;
+    }
 
     /* Suppress libbpf stderr chatter — .NET layer handles errors. */
     libbpf_set_print(libbpf_silent_print);
@@ -76,25 +79,28 @@ kt_error_t kt_session_load(const char *path, kt_session_t **out)
     setrlimit(RLIMIT_MEMLOCK, &rl);
 
     LIBBPF_OPTS(bpf_object_open_opts, opts);
-    struct bpf_object *obj = bpf_object__open_opts(path, &opts);
-    if (!obj || IS_ERR(obj)) {
-        return kt_error_from_errno((int)PTR_ERR(obj));
+    struct bpf_object *obj = bpf_object__open_file(path, &opts);
+    if (!obj) {
+        if (error_out) *error_out = kt_error_from_errno(-errno);
+        return NULL;
     }
 
     int err = bpf_object__load(obj);
     if (err) {
+        if (error_out) *error_out = kt_error_from_errno(err);
         bpf_object__close(obj);
-        return kt_error_from_errno(err);
+        return NULL;
     }
 
     kt_session_t *s = calloc(1, sizeof(*s));
     if (!s) {
+        if (error_out) *error_out = kt_error_from_errno(-ENOMEM);
         bpf_object__close(obj);
-        return kt_error_from_errno(-ENOMEM);
+        return NULL;
     }
     s->obj = obj;
-    *out = s;
-    return kt_ok_result();
+    if (error_out) *error_out = kt_ok_result();
+    return s;
 }
 
 KT_EXPORT
@@ -109,19 +115,19 @@ void kt_session_close(kt_session_t *session)
 
 static kt_attachment_t *make_attachment(struct bpf_link *link, kt_error_t *out_err)
 {
-    if (!link || IS_ERR(link)) {
-        *out_err = kt_error_from_errno((int)PTR_ERR(link));
+    if (!link) {
+        if (out_err) *out_err = kt_error_from_errno(-errno);
         return NULL;
     }
 
     kt_attachment_t *a = calloc(1, sizeof(*a));
     if (!a) {
         bpf_link__destroy(link);
-        *out_err = kt_error_from_errno(-ENOMEM);
+        if (out_err) *out_err = kt_error_from_errno(-ENOMEM);
         return NULL;
     }
     a->link = link;
-    *out_err = kt_ok_result();
+    if (out_err) *out_err = kt_ok_result();
     return a;
 }
 
@@ -139,13 +145,15 @@ static struct bpf_program *find_program_by_section(struct bpf_object *obj,
 /* ── Probe attachment ────────────────────────────────────────────────────── */
 
 KT_EXPORT
-kt_error_t kt_attach_tracepoint(kt_session_t *session,
-                                 const char   *category,
-                                 const char   *name,
-                                 kt_attachment_t **out)
+kt_attachment_t *kt_attach_tracepoint(kt_session_t *session,
+                                      const char   *category,
+                                      const char   *name,
+                                      kt_error_t   *error_out)
 {
-    if (!session || !category || !name || !out)
-        return kt_error_from_errno(-EINVAL);
+    if (!session || !category || !name) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return NULL;
+    }
 
     /* Build the section name "tp/category/name" that the BPF program uses. */
     char section[256];
@@ -153,26 +161,27 @@ kt_error_t kt_attach_tracepoint(kt_session_t *session,
 
     struct bpf_program *prog = find_program_by_section(session->obj, section);
     if (!prog) {
-        kt_error_t e;
-        e.code = -ENOENT;
-        snprintf(e.message, KT_MAX_ERROR_LEN,
-                 "No BPF program found with section '%s'", section);
-        return e;
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "No BPF program found with section '%.218s'", section);
+        }
+        return NULL;
     }
 
-    kt_error_t err;
-    *out = make_attachment(bpf_program__attach(prog), &err);
-    return err;
+    return make_attachment(bpf_program__attach(prog), error_out);
 }
 
 KT_EXPORT
-kt_error_t kt_attach_kprobe(kt_session_t    *session,
-                             const char      *func_name,
-                             int              ret_probe,
-                             kt_attachment_t **out)
+kt_attachment_t *kt_attach_kprobe(kt_session_t *session,
+                                  const char   *func_name,
+                                  int           ret_probe,
+                                  kt_error_t   *error_out)
 {
-    if (!session || !func_name || !out)
-        return kt_error_from_errno(-EINVAL);
+    if (!session || !func_name) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return NULL;
+    }
 
     const char *prefix = ret_probe ? "kretprobe" : "kprobe";
     char section[256];
@@ -180,28 +189,29 @@ kt_error_t kt_attach_kprobe(kt_session_t    *session,
 
     struct bpf_program *prog = find_program_by_section(session->obj, section);
     if (!prog) {
-        kt_error_t e;
-        e.code = -ENOENT;
-        snprintf(e.message, KT_MAX_ERROR_LEN,
-                 "No BPF program found with section '%s'", section);
-        return e;
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "No BPF program found with section '%.218s'", section);
+        }
+        return NULL;
     }
 
-    kt_error_t err;
-    *out = make_attachment(bpf_program__attach(prog), &err);
-    return err;
+    return make_attachment(bpf_program__attach(prog), error_out);
 }
 
 KT_EXPORT
-kt_error_t kt_attach_uprobe(kt_session_t    *session,
-                             const char      *binary_path,
-                             uint64_t         offset,
-                             int              ret_probe,
-                             const char      *prog_section,
-                             kt_attachment_t **out)
+kt_attachment_t *kt_attach_uprobe(kt_session_t *session,
+                                  const char   *binary_path,
+                                  uint64_t      offset,
+                                  int           ret_probe,
+                                  const char   *prog_section,
+                                  kt_error_t   *error_out)
 {
-    if (!session || !binary_path || !out)
-        return kt_error_from_errno(-EINVAL);
+    if (!session || !binary_path) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return NULL;
+    }
 
     struct bpf_program *prog = NULL;
     const char *prefix = ret_probe ? "uretprobe" : "uprobe";
@@ -210,11 +220,12 @@ kt_error_t kt_attach_uprobe(kt_session_t    *session,
         /* Caller specified an exact section — find it. */
         prog = find_program_by_section(session->obj, prog_section);
         if (!prog) {
-            kt_error_t e;
-            e.code = -ENOENT;
-            snprintf(e.message, KT_MAX_ERROR_LEN,
-                     "No BPF program found with section '%s'", prog_section);
-            return e;
+            if (error_out) {
+                error_out->code = -ENOENT;
+                snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                         "No BPF program found with section '%.218s'", prog_section);
+            }
+            return NULL;
         }
     } else {
         /* Fall back: use the first uprobe/uretprobe section found. */
@@ -229,19 +240,18 @@ kt_error_t kt_attach_uprobe(kt_session_t    *session,
     }
 
     if (!prog) {
-        kt_error_t e;
-        e.code = -ENOENT;
-        snprintf(e.message, KT_MAX_ERROR_LEN,
-                 "No BPF program found for uprobe in '%s'", binary_path);
-        return e;
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "No BPF program found for uprobe in '%.218s'", binary_path);
+        }
+        return NULL;
     }
 
     struct bpf_link *link = bpf_program__attach_uprobe(prog, ret_probe,
                                                         -1 /* all PIDs */,
                                                         binary_path, offset);
-    kt_error_t err;
-    *out = make_attachment(link, &err);
-    return err;
+    return make_attachment(link, error_out);
 }
 
 KT_EXPORT
@@ -255,79 +265,149 @@ void kt_detach(kt_attachment_t *attachment)
 /* ── Per-process filter ──────────────────────────────────────────────────── */
 
 KT_EXPORT
-kt_error_t kt_session_set_tgid_filter(kt_session_t *session, uint32_t tgid)
+void kt_session_set_tgid_filter(kt_session_t *session, uint32_t tgid,
+                                kt_error_t *error_out)
 {
-    if (!session)
-        return kt_error_from_errno(-EINVAL);
+    if (!session) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return;
+    }
 
     struct bpf_map *map = bpf_object__find_map_by_name(session->obj, "kt_tgid_filter");
     if (!map) {
-        kt_error_t e;
-        e.code = -ENOENT;
-        snprintf(e.message, KT_MAX_ERROR_LEN,
-                 "BPF map 'kt_tgid_filter' not found — probe not compiled with common.h");
-        return e;
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "BPF map 'kt_tgid_filter' not found — probe not compiled with common.h");
+        }
+        return;
     }
 
     int fd  = bpf_map__fd(map);
     __u32 key = 0;
     int err = bpf_map_update_elem(fd, &key, &tgid, BPF_ANY);
-    if (err)
-        return kt_error_from_errno(err);
-
-    return kt_ok_result();
+    if (error_out) {
+        if (err)
+            *error_out = kt_error_from_errno(err);
+        else
+            *error_out = kt_ok_result();
+    }
 }
 
 /* ── Ring buffer ─────────────────────────────────────────────────────────── */
 
 KT_EXPORT
-int kt_get_ringbuf_fd(kt_session_t *session, const char *map_name)
+int kt_get_ringbuf_fd(kt_session_t *session, const char *map_name,
+                      kt_error_t *error_out)
 {
-    if (!session || !map_name) return -EINVAL;
+    if (!session || !map_name) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return -EINVAL;
+    }
 
     struct bpf_map *map = bpf_object__find_map_by_name(session->obj, map_name);
-    if (!map) return -ENOENT;
+    if (!map) {
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "BPF map '%.218s' not found", map_name);
+        }
+        return -ENOENT;
+    }
 
+    if (error_out) *error_out = kt_ok_result();
     return bpf_map__fd(map);
 }
 
 KT_EXPORT
-void *kt_mmap_ringbuf(int fd, uint64_t data_size, uint64_t page_size)
+void *kt_mmap_ringbuf(int fd, uint64_t *total_size_out, uint64_t *data_size_out,
+                      kt_error_t *error_out)
 {
-    if (fd < 0 || data_size == 0 || page_size == 0) return NULL;
+    if (fd < 0 || !total_size_out || !data_size_out) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return NULL;
+    }
+
+    /* Query the ring buffer data size from the kernel via BPF syscall. */
+    struct bpf_map_info info;
+    memset(&info, 0, sizeof(info));
+    __u32 info_len = sizeof(info);
+    if (bpf_obj_get_info_by_fd(fd, &info, &info_len) != 0) {
+        if (error_out) *error_out = kt_error_from_errno(-errno);
+        return NULL;
+    }
+
+    uint64_t data_size = info.max_entries;
+    long ps = sysconf(_SC_PAGE_SIZE);
+    uint64_t page_size = ps > 0 ? (uint64_t)ps : 4096ULL;
 
     /*
-     * Ring buffer mmap layout (kernel docs/bpf/ringbuf.rst):
-     *   page 0             : consumer page  (read consumer position)
-     *   page 1             : producer page  (read producer position)
-     *   pages 2 .. N+1     : data           (first copy)
-     *   pages N+2 .. 2N+1  : data           (mirror copy, wraps automatically)
+     * The kernel forbids PROT_WRITE on the producer page and data region.
+     * Use three separate mmap calls:
+     *   1. Reserve a contiguous VA range with PROT_NONE / MAP_ANONYMOUS.
+     *   2. Map consumer page (offset 0) as PROT_READ|PROT_WRITE — the
+     *      consumer writes its read-position here to advance the ring.
+     *   3. Map producer page + data x2 (offset page_size) as PROT_READ —
+     *      consumer only reads these.
      */
-    size_t total = (size_t)(page_size * 2 + data_size * 2);
+    uint64_t total = page_size * 2 + data_size * 2;
 
-    void *addr = mmap(NULL, total, PROT_READ | PROT_WRITE,
-                      MAP_SHARED, fd, 0);
-    if (addr == MAP_FAILED) return NULL;
-    return addr;
+    /* Step 1: reserve contiguous VA. */
+    void *base = mmap(NULL, (size_t)total, PROT_NONE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (base == MAP_FAILED) {
+        if (error_out) *error_out = kt_error_from_errno(-errno);
+        return NULL;
+    }
+
+    /* Step 2: consumer page — read/write. */
+    void *p = mmap(base, (size_t)page_size, PROT_READ | PROT_WRITE,
+                   MAP_SHARED | MAP_FIXED, fd, 0);
+    if (p == MAP_FAILED) {
+        int e = errno;
+        munmap(base, (size_t)total);
+        if (error_out) *error_out = kt_error_from_errno(-e);
+        return NULL;
+    }
+
+    /* Step 3: producer page + data (x2) — read-only. */
+    size_t ro_size = (size_t)(page_size + data_size * 2);
+    p = mmap((char *)base + page_size, ro_size, PROT_READ,
+             MAP_SHARED | MAP_FIXED, fd, (off_t)page_size);
+    if (p == MAP_FAILED) {
+        int e = errno;
+        munmap(base, (size_t)total);
+        if (error_out) *error_out = kt_error_from_errno(-e);
+        return NULL;
+    }
+
+    *total_size_out = total;
+    *data_size_out  = data_size;
+    if (error_out) *error_out = kt_ok_result();
+    return base;
 }
 
 KT_EXPORT
-void kt_munmap(void *addr, uint64_t data_size, uint64_t page_size)
+void kt_munmap(void *addr, uint64_t total_size)
 {
-    if (!addr) return;
-    size_t total = (size_t)(page_size * 2 + data_size * 2);
-    munmap(addr, total);
+    if (addr) munmap(addr, (size_t)total_size);
 }
 
 /* ── epoll helpers ───────────────────────────────────────────────────────── */
 
 KT_EXPORT
-int kt_create_epoll(int ringbuf_fd)
+int kt_create_epoll(int ringbuf_fd, kt_error_t *error_out)
 {
-    if (ringbuf_fd < 0) return -EINVAL;
+    if (ringbuf_fd < 0) {
+        if (error_out) *error_out = kt_error_from_errno(-EINVAL);
+        return -EINVAL;
+    }
 
     int efd = epoll_create1(EPOLL_CLOEXEC);
-    if (efd < 0) return -errno;
+    if (efd < 0) {
+        if (error_out) *error_out = kt_error_from_errno(-errno);
+        return -errno;
+    }
 
     struct epoll_event ev = {
         .events  = EPOLLIN,
@@ -336,8 +416,10 @@ int kt_create_epoll(int ringbuf_fd)
     if (epoll_ctl(efd, EPOLL_CTL_ADD, ringbuf_fd, &ev) < 0) {
         int err = errno;
         close(efd);
+        if (error_out) *error_out = kt_error_from_errno(-err);
         return -err;
     }
+    if (error_out) *error_out = kt_ok_result();
     return efd;
 }
 
@@ -368,8 +450,9 @@ uint64_t kt_get_page_size(void)
 }
 
 KT_EXPORT
-int kt_btf_struct_size(const char *struct_name)
+int kt_btf_struct_size(kt_session_t *session, const char *struct_name)
 {
+    (void)session; /* reserved for future object-local BTF lookup */
     if (!struct_name) return -EINVAL;
 
     /* Load the vmlinux BTF (requires /sys/kernel/btf/vmlinux). */
@@ -381,7 +464,7 @@ int kt_btf_struct_size(const char *struct_name)
     for (int i = 1; i < nr; i++) {
         const struct btf_type *t = btf__type_by_id(vmlinux_btf, i);
         if (!t) continue;
-        if (!BTF_INFO_KIND(t->info) == BTF_KIND_STRUCT) continue;
+        if (BTF_INFO_KIND(t->info) != BTF_KIND_STRUCT) continue;
 
         const char *name = btf__name_by_offset(vmlinux_btf, t->name_off);
         if (name && strcmp(name, struct_name) == 0) {

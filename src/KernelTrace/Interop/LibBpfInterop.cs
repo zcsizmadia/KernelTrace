@@ -119,7 +119,7 @@ internal sealed class LibBpfInterop : INativeInterop
 
     public void SetTgidFilter(KernelProbeHandle session, uint tgid)
     {
-        var err = NativeMethods.SetTgidFilter(session.DangerousGetHandle(), tgid);
+        NativeMethods.SetTgidFilter(session.DangerousGetHandle(), tgid, out var err);
         err.ThrowIfError();
     }
 }

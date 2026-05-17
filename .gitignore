@@ -482,3 +482,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+native/build/
+runtimes/
+
+# Generated from running kernel BTF — do not check in
+native/probes/vmlinux.h

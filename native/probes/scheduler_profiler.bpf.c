@@ -38,13 +38,10 @@ struct {
 /*
  * The sched_switch tracepoint format (from /sys/kernel/debug/tracing/events/sched/sched_switch/format):
  *   prev_comm[16], prev_pid, prev_prio, prev_state, next_comm[16], next_pid, next_prio
- * Accessed via BTF CO-RE.
+ * Read directly from the raw tracepoint context struct.
  */
-SEC("tp_btf/sched_switch")
-int BPF_PROG(handle_sched_switch,
-             bool preempt,
-             struct task_struct *prev,
-             struct task_struct *next)
+SEC("tp/sched/sched_switch")
+int handle_sched_switch(struct trace_event_raw_sched_switch *ctx)
 {
     if (!kt_should_trace()) return 0;
 
@@ -54,14 +51,14 @@ int BPF_PROG(handle_sched_switch,
 
     ev->timestamp_ns = kt_ktime_ns();
     ev->cpu_id       = bpf_get_smp_processor_id();
-    ev->prev_pid     = BPF_CORE_READ(prev, pid);
-    ev->next_pid     = BPF_CORE_READ(next, pid);
-    ev->prev_prio    = BPF_CORE_READ(prev, prio);
-    ev->next_prio    = BPF_CORE_READ(next, prio);
-    ev->prev_state   = (__u8)(BPF_CORE_READ(prev, __state) & 0xFF);
+    ev->prev_pid     = (__u32)ctx->prev_pid;
+    ev->next_pid     = (__u32)ctx->next_pid;
+    ev->prev_prio    = ctx->prev_prio;
+    ev->next_prio    = ctx->next_prio;
+    ev->prev_state   = (__u8)(ctx->prev_state & 0xFF);
 
-    BPF_CORE_READ_STR_INTO(&ev->prev_comm, prev, comm);
-    BPF_CORE_READ_STR_INTO(&ev->next_comm, next, comm);
+    bpf_probe_read_kernel(ev->prev_comm, sizeof(ev->prev_comm), ctx->prev_comm);
+    bpf_probe_read_kernel(ev->next_comm, sizeof(ev->next_comm), ctx->next_comm);
 
     bpf_ringbuf_submit(ev, 0);
     return 0;

@@ -109,3 +109,75 @@ int handle_connect_exit(struct trace_event_raw_sys_exit *ctx)
     bpf_ringbuf_submit(ev, 0);
     return 0;
 }
+
+/* ── Generic minimal event used by kprobe/tracepoint stub programs ─────── */
+
+struct generic_event {
+    __u64 timestamp_ns;
+    __u32 pid;
+    __u32 tgid;
+    char  comm[16];
+};
+
+/* ── sys_enter_openat tracepoint (used by integration tests) ──────────── */
+
+SEC("tp/syscalls/sys_enter_openat")
+int handle_openat_enter(struct trace_event_raw_sys_enter *ctx)
+{
+    if (!kt_should_trace()) return 0;
+
+    struct generic_event *ev =
+        bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev) return 0;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    ev->timestamp_ns = kt_ktime_ns();
+    ev->pid          = (__u32)(pid_tgid & 0xFFFFFFFF);
+    ev->tgid         = (__u32)(pid_tgid >> 32);
+    KT_COMM_READ(ev->comm, sizeof(ev->comm));
+
+    bpf_ringbuf_submit(ev, 0);
+    return 0;
+}
+
+/* ── kprobe/tcp_connect (used by integration tests) ──────────────────── */
+
+SEC("kprobe/tcp_connect")
+int handle_tcp_connect(struct pt_regs *ctx)
+{
+    if (!kt_should_trace()) return 0;
+
+    struct generic_event *ev =
+        bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev) return 0;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    ev->timestamp_ns = kt_ktime_ns();
+    ev->pid          = (__u32)(pid_tgid & 0xFFFFFFFF);
+    ev->tgid         = (__u32)(pid_tgid >> 32);
+    KT_COMM_READ(ev->comm, sizeof(ev->comm));
+
+    bpf_ringbuf_submit(ev, 0);
+    return 0;
+}
+
+/* ── kretprobe/do_sys_openat2 (used by integration tests) ────────────── */
+
+SEC("kretprobe/do_sys_openat2")
+int handle_do_sys_openat2_ret(struct pt_regs *ctx)
+{
+    if (!kt_should_trace()) return 0;
+
+    struct generic_event *ev =
+        bpf_ringbuf_reserve(&events, sizeof(*ev), 0);
+    if (!ev) return 0;
+
+    __u64 pid_tgid = bpf_get_current_pid_tgid();
+    ev->timestamp_ns = kt_ktime_ns();
+    ev->pid          = (__u32)(pid_tgid & 0xFFFFFFFF);
+    ev->tgid         = (__u32)(pid_tgid >> 32);
+    KT_COMM_READ(ev->comm, sizeof(ev->comm));
+
+    bpf_ringbuf_submit(ev, 0);
+    return 0;
+}

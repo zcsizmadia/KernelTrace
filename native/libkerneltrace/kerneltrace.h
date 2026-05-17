@@ -46,7 +46,7 @@ typedef struct kt_attachment kt_attachment_t;
  * @param  out    Receives the session handle on success.
  * @return        Error descriptor (code == 0 on success).
  */
-kt_error_t kt_session_load(const char *path, kt_session_t **out);
+kt_session_t *kt_session_load(const char *path, kt_error_t *error_out);
 
 /**
  * Unload the BPF object and free all kernel resources.
@@ -64,11 +64,11 @@ void kt_session_close(kt_session_t *session);
  * @param  name       Tracepoint name  (e.g. "sys_enter_connect").
  * @param  out        Receives the attachment handle on success.
  */
-kt_error_t kt_attach_tracepoint(
-    kt_session_t    *session,
-    const char      *category,
-    const char      *name,
-    kt_attachment_t **out);
+kt_attachment_t *kt_attach_tracepoint(
+    kt_session_t *session,
+    const char   *category,
+    const char   *name,
+    kt_error_t   *error_out);
 
 /**
  * Attach a BPF program to a kprobe (or kretprobe).
@@ -76,13 +76,14 @@ kt_error_t kt_attach_tracepoint(
  * @param  session      Active session.
  * @param  func_name    Kernel function name.
  * @param  ret_probe    Non-zero to attach a kretprobe instead of kprobe.
- * @param  out          Receives the attachment handle on success.
+ * @param  error_out    Receives error details on failure; may be NULL.
+ * @return              Attachment handle, or NULL on failure.
  */
-kt_error_t kt_attach_kprobe(
-    kt_session_t    *session,
-    const char      *func_name,
-    int              ret_probe,
-    kt_attachment_t **out);
+kt_attachment_t *kt_attach_kprobe(
+    kt_session_t *session,
+    const char   *func_name,
+    int           ret_probe,
+    kt_error_t   *error_out);
 
 /**
  * Attach a BPF program to a user-space uprobe (or uretprobe).
@@ -91,17 +92,17 @@ kt_error_t kt_attach_kprobe(
  * @param  binary_path   Absolute path to the target ELF binary / library.
  * @param  offset        Byte offset of the probe point within the binary.
  * @param  ret_probe     Non-zero to attach a uretprobe.
- * @param  prog_section  Optional BPF program section name (e.g. "uprobe/gc_start").
- *                       Pass NULL to use the first uprobe section found.
- * @param  out           Receives the attachment handle on success.
+ * @param  prog_section  Optional BPF program section name. NULL = first uprobe found.
+ * @param  error_out     Receives error details on failure; may be NULL.
+ * @return               Attachment handle, or NULL on failure.
  */
-kt_error_t kt_attach_uprobe(
-    kt_session_t    *session,
-    const char      *binary_path,
-    uint64_t         offset,
-    int              ret_probe,
-    const char      *prog_section,
-    kt_attachment_t **out);
+kt_attachment_t *kt_attach_uprobe(
+    kt_session_t *session,
+    const char   *binary_path,
+    uint64_t      offset,
+    int           ret_probe,
+    const char   *prog_section,
+    kt_error_t   *error_out);
 
 /**
  * Detach a previously attached probe and free associated kernel resources.
@@ -127,7 +128,7 @@ void kt_detach(kt_attachment_t *attachment);
  * @param  tgid     Process (thread-group) ID to trace, or 0 for all.
  * @return          Error descriptor (code == 0 on success).
  */
-kt_error_t kt_session_set_tgid_filter(kt_session_t *session, uint32_t tgid);
+void kt_session_set_tgid_filter(kt_session_t *session, uint32_t tgid, kt_error_t *error_out);
 
 /* ── Ring buffer ─────────────────────────────────────────────────────────── */
 
@@ -138,31 +139,34 @@ kt_error_t kt_session_set_tgid_filter(kt_session_t *session, uint32_t tgid);
  * @param  map_name  Name of the BPF_MAP_TYPE_RINGBUF map (e.g. "events").
  * @return           A valid fd >= 0, or a negative errno on error.
  */
-int kt_get_ringbuf_fd(kt_session_t *session, const char *map_name);
+int kt_get_ringbuf_fd(kt_session_t *session, const char *map_name,
+                      kt_error_t *error_out);
 
 /**
  * mmap the ring-buffer memory for direct read access.
  *
- * Returns the base pointer of the mmap region on success, or NULL on error.
- * The caller is responsible for calling kt_munmap() when done.
+ * Queries the map size via BPF syscall, then maps the full region.
+ * The caller is responsible for calling kt_munmap() with the returned
+ * total_size when done.
  *
- * Layout (per kernel ring-buffer spec):
- *   [consumer page] [producer page] [data pages × 2 (mirrored)]
- *
- * @param  fd        Ring-buffer map fd.
- * @param  data_size Number of data bytes (must be a power-of-two multiple of page_size).
- * @param  page_size System page size.
+ * @param  fd             Ring-buffer map fd.
+ * @param  total_size_out Receives the total mmap byte count.
+ * @param  data_size_out  Receives the data-region byte count.
+ * @param  error_out      Receives error details on failure; may be NULL.
+ * @return                Base pointer of the mmap region, or NULL on error.
  */
-void *kt_mmap_ringbuf(int fd, uint64_t data_size, uint64_t page_size);
+void *kt_mmap_ringbuf(int fd,
+                      uint64_t   *total_size_out,
+                      uint64_t   *data_size_out,
+                      kt_error_t *error_out);
 
 /**
  * Unmap a ring-buffer region created with kt_mmap_ringbuf.
  *
- * @param  addr       Base pointer returned by kt_mmap_ringbuf.
- * @param  data_size  Same data_size passed to kt_mmap_ringbuf.
- * @param  page_size  System page size.
+ * @param  addr        Base pointer returned by kt_mmap_ringbuf.
+ * @param  total_size  The total_size_out value from kt_mmap_ringbuf.
  */
-void kt_munmap(void *addr, uint64_t data_size, uint64_t page_size);
+void kt_munmap(void *addr, uint64_t total_size);
 
 /* ── epoll helpers ───────────────────────────────────────────────────────── */
 
@@ -170,9 +174,10 @@ void kt_munmap(void *addr, uint64_t data_size, uint64_t page_size);
  * Create an epoll file descriptor and add the ring-buffer fd to it.
  *
  * @param  ringbuf_fd  Ring-buffer map fd.
+ * @param  error_out   Receives error details on failure; may be NULL.
  * @return             epoll fd >= 0, or a negative errno.
  */
-int kt_create_epoll(int ringbuf_fd);
+int kt_create_epoll(int ringbuf_fd, kt_error_t *error_out);
 
 /**
  * Wait for events on the epoll fd.
@@ -197,7 +202,7 @@ uint64_t kt_get_page_size(void);
  * @param  struct_name  Name of the struct as defined in the BPF program.
  * @return              Byte size >= 0, or a negative errno if not found.
  */
-int kt_btf_struct_size(const char *struct_name);
+int kt_btf_struct_size(kt_session_t *session, const char *struct_name);
 
 #ifdef __cplusplus
 }
