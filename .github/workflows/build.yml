@@ -116,7 +116,6 @@ jobs:
 
       - name: Integration tests
         # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
-        #if: matrix.runtimeId == 'linux-x64' || matrix.runtimeId == 'linux-arm64'
         if: runner.os == 'Linux' && matrix.container == null
         shell: bash
         run: |

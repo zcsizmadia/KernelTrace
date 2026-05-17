@@ -48,3 +48,25 @@ internal sealed class RequiresBpfAttribute : SkipAttribute
         return Task.FromResult(!probeFound);
     }
 }
+
+/// <summary>
+/// TUnit skip condition: skips a test when running inside a CI environment
+/// (i.e. the <c>CI</c> environment variable is set to <c>true</c>).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+internal sealed class SkipInCiAttribute : SkipAttribute
+{
+    public SkipInCiAttribute(string reason)
+        : base(reason)
+    {
+    }
+
+    public override Task<bool> ShouldSkip(TestRegisteredContext context)
+    {
+        bool inCi = string.Equals(
+            Environment.GetEnvironmentVariable("CI"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        return Task.FromResult(inCi);
+    }
+}

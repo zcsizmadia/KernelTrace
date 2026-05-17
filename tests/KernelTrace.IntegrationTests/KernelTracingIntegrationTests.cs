@@ -364,6 +364,7 @@ public sealed class KernelTracingIntegrationTests
     /// </summary>
     [Test]
     [RequiresBpf("block_io")]
+    [SkipInCi("Block I/O tracing is restricted on the Azure CI kernel (6.x-azure).")]
     public async Task BlockIo_BlockRqTracepoints_AttachesSuccessfully()
     {
         string probePath = IntegrationTestHelpers.FindProbeFile("block_io")!;
