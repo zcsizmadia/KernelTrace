@@ -1,21 +1,27 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using KernelTrace.Probes;
 using KernelTrace.Sessions;
 
 // ──────────────────────────────────────────────────────────────────────────────
 //  UsdtPythonTracer — Sample
-//  Attaches to the Python 3 `function__entry` USDT probe and prints every
-//  Python function call in real time.
+//  Attaches to the Python 3 `gc__start` and `gc__done` USDT probes and prints
+//  every Python garbage-collection cycle in real time.
+//
+//  These probes are present in every standard CPython 3.x binary that was
+//  built with USDT support (all Debian/Ubuntu packages include them).
+//  The function__entry / function__return probes require python3-dbg and are
+//  NOT used here.
 //
 //  Shows:
-//    - UsdtSpec — attaching to a user-space USDT probe point
+//    - UsdtSpec — attaching to multiple user-space USDT probe points
 //    - Filtering by PID (or -1 for all processes)
-//    - Reading mixed C string fields from BPF ring-buffer events
+//    - A self-driven Python GC subprocess so events are always visible
 //
 //  Requirements:
 //    - Linux with kernel >= 5.8 and BTF support
 //    - CAP_BPF + CAP_PERFMON (or root)
-//    - Python 3 compiled with USDT probes (python3-dbg on Debian/Ubuntu)
+//    - Python 3 with USDT probes compiled in (standard packages work)
 //    - Compiled eBPF object: usdt_python.bpf.o
 //    - Optional: set env var PYTHON_PID=<pid> to trace a single process
 // ──────────────────────────────────────────────────────────────────────────────
@@ -33,23 +39,18 @@ if (Environment.GetEnvironmentVariable("PYTHON_PID") is { } pidStr &&
 
 Console.WriteLine("╔══════════════════════════════════════════════╗");
 Console.WriteLine("║     KernelTrace — USDT Python Tracer         ║");
-Console.WriteLine("║  Traces Python function__entry USDT probes   ║");
+Console.WriteLine("║  Traces Python gc__start / gc__done probes   ║");
 Console.WriteLine("║  Press Ctrl+C to stop                        ║");
 Console.WriteLine("╚══════════════════════════════════════════════╝");
 Console.WriteLine();
 
 if (targetPid > 0)
-{
     Console.WriteLine($"Restricting trace to PID {targetPid}.");
-}
 else
-{
-    Console.WriteLine("Tracing all Python processes. " +
-                      "Set PYTHON_PID=<pid> to restrict to one process.");
-}
+    Console.WriteLine("Tracing all Python processes. Set PYTHON_PID=<pid> to restrict to one process.");
+
 Console.WriteLine();
 
-// Detect the Python 3 interpreter path (used for the USDT binary path).
 string pythonBinary = FindPythonBinary();
 Console.WriteLine($"Python binary: {pythonBinary}");
 
@@ -60,13 +61,22 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     ProbePath = probePath,
     Probes =
     [
-        // Attach to the function__entry USDT probe in the Python interpreter.
+        // gc__start fires when a GC cycle begins; arg0 = generation (0/1/2).
         new UsdtSpec
         {
             BinaryPath     = pythonBinary,
             Provider       = "python",
-            Name           = "function__entry",
-            ProgramSection = "usdt/python:function__entry",
+            Name           = "gc__start",
+            ProgramSection = "usdt/python:gc__start",
+            Pid            = targetPid,
+        },
+        // gc__done fires when a GC cycle ends; arg0 = number of objects collected.
+        new UsdtSpec
+        {
+            BinaryPath     = pythonBinary,
+            Provider       = "python",
+            Name           = "gc__done",
+            ProgramSection = "usdt/python:gc__done",
             Pid            = targetPid,
         },
     ],
@@ -74,30 +84,28 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     PollTimeoutMs         = 100,
 });
 
-Console.WriteLine($"Session started. Waiting for Python function calls...");
+// Spawn a Python subprocess that generates GC events so there is always
+// something to observe in the trace output.
+using var gcDriver = SpawnGcDriver(pythonBinary, cts.Token);
+
+Console.WriteLine("Session started. Waiting for Python GC events...");
 Console.WriteLine();
-Console.WriteLine($"{"TIME",-12} {"PID",-8} {"FILE",-40} {"FUNCTION",-30} LINE");
-Console.WriteLine(new string('─', 95));
+Console.WriteLine($"{"TIME",-12} {"PID",-8} {"EVENT",-12} {"GEN / COLLECTED",-20}");
+Console.WriteLine(new string('─', 55));
 
 int eventCount = 0;
 
 try
 {
-    await foreach (var ev in session.ReadAsync<PythonCallEvent>(cts.Token))
+    await foreach (var ev in session.ReadAsync<PythonGcEvent>(cts.Token))
     {
         eventCount++;
 
-        string time     = DateTime.Now.ToString("HH:mm:ss.fff");
-        string filename = ReadCString(ev.Filename, 64);
-        string funcname = ReadCString(ev.Funcname, 64);
+        string time  = DateTime.Now.ToString("HH:mm:ss.fff");
+        string kind  = ev.IsEnd == 0 ? "GC START" : "GC DONE";
+        string label = ev.IsEnd == 0 ? $"gen {ev.Value}" : $"{ev.Value} collected";
 
-        // Shorten long filenames for display.
-        if (filename.Length > 39)
-        {
-            filename = "..." + filename[^36..];
-        }
-
-        Console.WriteLine($"{time,-12} {ev.Pid,-8} {filename,-40} {funcname,-30} {ev.Lineno}");
+        Console.WriteLine($"{time,-12} {ev.Pid,-8} {kind,-12} {label,-20}");
     }
 }
 catch (OperationCanceledException) { }
@@ -111,48 +119,58 @@ Console.WriteLine($"Session metrics: {session.Metrics.TotalReceived} received, "
 
 static string FindPythonBinary()
 {
-    // Look for python3 in PATH.
     foreach (string dir in (Environment.GetEnvironmentVariable("PATH") ?? "")
                            .Split(':', StringSplitOptions.RemoveEmptyEntries))
     {
         string candidate = Path.Combine(dir, "python3");
         if (File.Exists(candidate))
-        {
             return candidate;
-        }
     }
-
     return "/usr/bin/python3";
 }
 
-static unsafe string ReadCString(ReadOnlySpan<byte> span, int maxLen)
+// Starts a background Python process that repeatedly triggers GC so events
+// are always visible in the trace output.
+static Process? SpawnGcDriver(string pythonBinary, CancellationToken ct)
 {
-    int len = 0;
-    while (len < span.Length && len < maxLen && span[len] != 0)
-    {
-        len++;
-    }
+    const string script =
+        "import gc, time\n" +
+        "while True:\n" +
+        "    gc.collect(0)\n" +
+        "    gc.collect(1)\n" +
+        "    gc.collect(2)\n" +
+        "    time.sleep(0.5)\n";
 
-    return System.Text.Encoding.UTF8.GetString(span[..len]);
+    var psi = new ProcessStartInfo(pythonBinary, ["-c", script])
+    {
+        RedirectStandardOutput = true,
+        RedirectStandardError  = true,
+        UseShellExecute        = false,
+    };
+
+    try
+    {
+        var proc = Process.Start(psi);
+        if (proc is not null)
+            ct.Register(() => { try { proc.Kill(); } catch { } });
+        return proc;
+    }
+    catch
+    {
+        return null;   // Python not available — events from other processes may still arrive.
+    }
 }
 
 // ── Event struct ──────────────────────────────────────────────────────────────
-// Must match struct python_call_event in usdt_python.bpf.c exactly.
+// Must match struct python_gc_event in usdt_python.bpf.c exactly.
 
 [StructLayout(LayoutKind.Sequential)]
-internal unsafe struct PythonCallEvent
+internal unsafe struct PythonGcEvent
 {
-    public ulong    TimestampNs;
-    public uint     Pid;
-    public uint     Tgid;
-    public fixed byte _filename[64];
-    public fixed byte _funcname[64];
-    public int      Lineno;
-    public uint     _pad;
-
-    public ReadOnlySpan<byte> Filename =>
-        MemoryMarshal.CreateReadOnlySpan(ref _filename[0], 64);
-
-    public ReadOnlySpan<byte> Funcname =>
-        MemoryMarshal.CreateReadOnlySpan(ref _funcname[0], 64);
+    public ulong TimestampNs;   // offset  0, size 8
+    public uint  Pid;           // offset  8, size 4
+    public uint  Tgid;          // offset 12, size 4
+    public long  Value;         // offset 16, size 8  (generation or collected count)
+    public byte  IsEnd;         // offset 24, size 1  (0 = gc__start, 1 = gc__done)
+    private fixed byte _pad[7]; // offset 25, size 7  (pad to 32 bytes)
 }

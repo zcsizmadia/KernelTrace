@@ -12,8 +12,15 @@ concurrency:
 
 jobs:
   generate-vmlinux:
-    runs-on: ubuntu-latest
-    name: Generate vmlinux.h
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    name: Generate vmlinux.h (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v6
 
@@ -32,7 +39,7 @@ jobs:
       - name: Upload vmlinux.h
         uses: actions/upload-artifact@v7
         with:
-          name: vmlinux-h
+          name: vmlinux-h-${{ matrix.arch }}
           path: native/probes/vmlinux.h
 
   build:
@@ -42,19 +49,24 @@ jobs:
         include:
           - runtimeId: linux-x64
             os: ubuntu-latest
+            vmlinuxArtifact: vmlinux-h-x64
 
           - runtimeId: linux-arm64
             os: ubuntu-24.04-arm
+            vmlinuxArtifact: vmlinux-h-arm64
 
           - runtimeId: linux-musl-x64
             os: ubuntu-latest
             container: alpine:latest
+            vmlinuxArtifact: vmlinux-h-x64
 
           - runtimeId: linux-musl-arm64
             os: ubuntu-24.04-arm
             container: alpine:latest
+            vmlinuxArtifact: vmlinux-h-arm64
 
     needs: [generate-vmlinux]
+    if: always() && needs.generate-vmlinux.result == 'success'
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
     name: Build - (${{ matrix.runtimeId }})
@@ -70,7 +82,7 @@ jobs:
       - name: Download vmlinux.h
         uses: actions/download-artifact@v8
         with:
-          name: vmlinux-h
+          name: ${{ matrix.vmlinuxArtifact }}
           path: native/probes
 
       # Install packages needed for building the native libraries.
