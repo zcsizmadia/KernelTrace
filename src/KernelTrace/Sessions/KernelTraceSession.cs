@@ -407,11 +407,11 @@ public sealed class KernelTraceSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(token);
         return Task.Run(() =>
         {
-            _interop.Detach(token.Handle);
             lock (_validatedStructsLock)
             {
                 _attachments.Remove(token.Handle);
             }
+            token.Handle.Dispose();
         }, cancellationToken);
     }
 

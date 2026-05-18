@@ -132,12 +132,6 @@ jobs:
         # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
         if: runner.os == 'Linux' && matrix.container == null
         shell: bash
-        env:
-          # Ask the .NET runtime to write a full crash dump on SIGSEGV / abort.
-          DOTNET_DbgEnableMiniDump: 1
-          DOTNET_DbgMiniDumpType: 4        # 4 = full dump
-          DOTNET_DbgMiniDumpName: /tmp/crash-%p.dmp
-          DOTNET_CreateDumpDiagnostics: 1
         run: |
           # Preserve the runner's PATH so dotnet is found under sudo.
           # CAP_BPF + CAP_PERFMON are available to root, which satisfies
@@ -145,33 +139,8 @@ jobs:
           # Only Linux non-container runners are expected to have
           # the necessary capabilities for integration tests.
           sudo env PATH="$PATH" CI="${CI:-}" GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \
-            DOTNET_DbgEnableMiniDump=1 \
-            DOTNET_DbgMiniDumpType=4 \
-            DOTNET_DbgMiniDumpName=/tmp/crash-%p.dmp \
-            DOTNET_CreateDumpDiagnostics=1 \
             dotnet test tests/KernelTrace.IntegrationTests \
               -c Release --no-build --no-restore
-
-      - name: Collect crash dumps
-        if: failure() && runner.os == 'Linux' && matrix.container == null
-        shell: bash
-        run: |
-          # The dumps are written by the sudo-owned process (root), so the
-          # upload-artifact action (runner user) can't read them. Copy them
-          # to a world-readable staging directory first.
-          mkdir -p /tmp/crash-dumps
-          sudo find /tmp -maxdepth 1 -name 'crash-*.dmp' \
-            -exec cp {} /tmp/crash-dumps/ \; \
-            -exec chmod 644 /tmp/crash-dumps/{} \; 2>/dev/null || true
-          sudo chmod -R a+r /tmp/crash-dumps
-
-      - name: Upload crash dumps
-        if: failure() && runner.os == 'Linux' && matrix.container == null
-        uses: actions/upload-artifact@v7
-        with:
-          name: crash-dumps-${{ matrix.runtimeId }}
-          path: /tmp/crash-dumps/
-          if-no-files-found: ignore
 
       - name: Upload native library artifact
         uses: actions/upload-artifact@v7
