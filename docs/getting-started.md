@@ -412,8 +412,10 @@ bash native/scripts/build-and-install.sh
 The script automatically:
 
 1. Detects the host architecture (`x86_64` → `linux-x64`, `aarch64` → `linux-arm64`).
-2. Detects the libc variant — musl (Alpine, Void Linux, …) adds a `-musl` RID
-   suffix (e.g. `linux-musl-x64`) using `ldd --version`.
+2. Detects the libc variant — checks `/etc/alpine-release` first (reliable in
+   CI Alpine containers), then falls back to `ldd --version` for other musl
+   distros (Void Linux, OpenWRT, …). Adds a `-musl` RID suffix when detected
+   (e.g. `linux-musl-x64`).
 3. Runs CMake with `-DCMAKE_BUILD_TYPE=Release -DKERNELTRACE_BUILD_PROBES=ON`.
 4. Copies `libkerneltrace.so` and all `*.bpf.o` files into
    `runtimes/<RID>/native/` — the path the .NET native-asset resolver and

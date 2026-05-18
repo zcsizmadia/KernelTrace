@@ -167,8 +167,66 @@ jobs:
         run: |
           dotnet pack -c Release -o nupkgs
 
+      - name: Validate NuGet packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS=0; FAIL=0
+
+          for PKG in nupkgs/*.nupkg; do
+            NAME=$(basename "$PKG")
+
+            # 1. ZIP integrity
+            if ! unzip -t "$PKG" > /dev/null 2>&1; then
+              echo "::error::$NAME — invalid zip"
+              FAIL=$((FAIL+1)); continue
+            fi
+
+            # 2. .nuspec present
+            if ! unzip -l "$PKG" | grep -q "\.nuspec"; then
+              echo "::error::$NAME — missing .nuspec"
+              FAIL=$((FAIL+1)); continue
+            fi
+
+            # 3. For KernelTrace.*.nupkg check that native assets are bundled
+            #    for all four expected RIDs.
+            if [[ "$NAME" == KernelTrace.[0-9]* ]]; then
+              CONTENTS=$(unzip -l "$PKG")
+              for RID in linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64; do
+                if ! echo "$CONTENTS" | grep -q "runtimes/$RID/native/libkerneltrace.so"; then
+                  echo "::error::$NAME — missing runtimes/$RID/native/libkerneltrace.so"
+                  FAIL=$((FAIL+1))
+                fi
+              done
+            fi
+
+            echo "OK  $NAME"
+            PASS=$((PASS+1))
+          done
+
+          # 4. Restore test: create a throw-away project, add local source, restore.
+          TMPDIR=$(mktemp -d)
+          trap "rm -rf $TMPDIR" EXIT
+          dotnet new classlib -n PkgTest -o "$TMPDIR" --no-restore -f net10.0 -v q
+          PKG_VERSION=$(ls nupkgs/KernelTrace.*.nupkg | head -1 \
+            | sed 's/.*KernelTrace\.\(.*\)\.nupkg/\1/')
+          dotnet add "$TMPDIR/PkgTest.csproj" package KernelTrace \
+            --version "$PKG_VERSION" \
+            --source "$(pwd)/nupkgs" \
+            --no-restore
+          dotnet restore "$TMPDIR/PkgTest.csproj" \
+            --source "$(pwd)/nupkgs" \
+            -v q
+          echo "OK  restore test (KernelTrace $PKG_VERSION)"
+
+          echo ""
+          echo "Package validation: $PASS checked, $FAIL failed"
+          [[ $FAIL -eq 0 ]]
+
       - name: Upload NuGet package artifact
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
-          path: nupkgs/*.nupkg
+          path: |
+            nupkgs/*.nupkg
+            nupkgs/*.snupkg

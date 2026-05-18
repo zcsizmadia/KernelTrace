@@ -19,10 +19,12 @@ BUILD_DIR="${NATIVE_DIR}/build"
 # ── Detect musl vs glibc → affects the .NET RID ──────────────────────────────
 
 LIBC_SUFFIX=""
-# musl's ldd always prints "musl libc" in its version banner; glibc prints
-# "GNU libc" or similar.  This works on Alpine, Void Linux, and any other
-# musl-based distro regardless of whether /etc/alpine-release exists.
-if ldd --version 2>&1 | grep -qi musl; then
+# /etc/alpine-release is the most reliable indicator for the Alpine Linux
+# container used in CI.  Fall back to ldd --version for non-Alpine musl
+# distros (Void Linux, OpenWRT, etc.).
+if [[ -f /etc/alpine-release ]]; then
+    LIBC_SUFFIX="-musl"
+elif ldd --version 2>&1 | grep -qi musl; then
     LIBC_SUFFIX="-musl"
 fi
 
