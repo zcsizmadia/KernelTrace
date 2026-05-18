@@ -34,11 +34,7 @@ jobs:
           popd
 
       - name: Generate vmlinux.h from kernel BTF
-        run: |
-          # BTF dump reads /sys/kernel/btf/vmlinux — no kernel-version match needed.
-          #bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
-
-          ./native/scripts/gen-vmlinux.sh
+        run: native/scripts/gen-vmlinux.sh
 
       - name: Upload vmlinux.h
         uses: actions/upload-artifact@v7
@@ -111,14 +107,7 @@ jobs:
 
       - name: Build native library
         shell: bash
-        run: |
-          cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build native/build --parallel $(nproc)
-          # Copy all native outputs to the RID-based path consumed by .NET's
-          # native resolver and by the NuGet pack in the build-nupkg job.
-          mkdir -p runtimes/${{ matrix.runtimeId }}/native
-          cp native/build/libkerneltrace.so runtimes/${{ matrix.runtimeId }}/native/
-          cp native/build/*.bpf.o runtimes/${{ matrix.runtimeId }}/native/
+        run: native/scripts/build-and-install.sh
 
       - name: Build
         shell: bash

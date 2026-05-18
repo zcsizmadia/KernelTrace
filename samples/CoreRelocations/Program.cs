@@ -130,10 +130,14 @@ static unsafe string ReadComm(in SocketConnectEvent ev)
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public unsafe struct SocketConnectEvent
 {
+    public ulong  TimestampNs;
     public uint   Pid;
+    public uint   Tgid;
+    public uint   Uid;
     public uint   SrcIp;
     public uint   DstIp;
     public ushort SrcPort;
     public ushort DstPort;
     public fixed byte Comm[16];
+    public byte   Family;
 }

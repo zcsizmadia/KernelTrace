@@ -42,15 +42,14 @@ try
 await session.ProcessAsync<SchedSwitchEvent>(
     handler: (in SchedSwitchEvent ev, CancellationToken ct) =>
     {
-        ulong now = ev.Timestamp;
 
         // PID being scheduled OUT → record when it was put to sleep.
-        descheduledAt[ev.PrevPid] = now;
+        descheduledAt[ev.PrevPid] = ev.TimestampNs;
 
         // PID being scheduled IN → accumulate its off-CPU time.
         if (descheduledAt.TryRemove(ev.NextPid, out ulong sleptAt))
         {
-            ulong elapsed = now > sleptAt ? now - sleptAt : 0UL;
+            ulong elapsed = ev.TimestampNs > sleptAt ? ev.TimestampNs - sleptAt : 0UL;
             offCpuNs.AddOrUpdate(ev.NextPid,
                 addValue: (long)elapsed,
                 updateValueFactory: (_, existing) => existing + (long)elapsed);
@@ -94,7 +93,7 @@ static void PrintReport(ConcurrentDictionary<uint, long> stats)
 public partial struct SchedSwitchEvent
 {
     /// <summary>Kernel monotonic timestamp (nanoseconds).</summary>
-    public ulong Timestamp;
+    public ulong TimestampNs;
 
     /// <summary>PID of the process being switched out.</summary>
     public uint PrevPid;

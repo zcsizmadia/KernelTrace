@@ -16,13 +16,23 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NATIVE_DIR="${REPO_ROOT}/native"
 BUILD_DIR="${NATIVE_DIR}/build"
 
+# ── Detect musl vs glibc → affects the .NET RID ──────────────────────────────
+
+LIBC_SUFFIX=""
+# musl's ldd always prints "musl libc" in its version banner; glibc prints
+# "GNU libc" or similar.  This works on Alpine, Void Linux, and any other
+# musl-based distro regardless of whether /etc/alpine-release exists.
+if ldd --version 2>&1 | grep -qi musl; then
+    LIBC_SUFFIX="-musl"
+fi
+
 # ── Detect architecture → .NET RID ───────────────────────────────────────────
 
 ARCH="$(uname -m)"
 case "${ARCH}" in
-    x86_64)  RID="linux-x64"   ;;
-    aarch64) RID="linux-arm64" ;;
-    armv7l)  RID="linux-arm"   ;;
+    x86_64)  RID="linux${LIBC_SUFFIX}-x64"   ;;
+    aarch64) RID="linux${LIBC_SUFFIX}-arm64" ;;
+    armv7l)  RID="linux${LIBC_SUFFIX}-arm"   ;;
     *)
         echo "ERROR: Unsupported architecture '${ARCH}'." >&2
         exit 1
@@ -32,7 +42,8 @@ esac
 DEST_DIR="${REPO_ROOT}/runtimes/${RID}/native"
 
 echo "KernelTrace — native build + install"
-echo "  Architecture : ${ARCH}  →  RID: ${RID}"
+LIBC_DISPLAY="${LIBC_SUFFIX:+musl}"; LIBC_DISPLAY="${LIBC_DISPLAY:-glibc}"
+echo "  Architecture : ${ARCH} (${LIBC_DISPLAY})  →  RID: ${RID}"
 echo "  Build dir    : ${BUILD_DIR}"
 echo "  Install dir  : ${DEST_DIR}"
 echo

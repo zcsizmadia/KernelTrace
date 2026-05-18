@@ -240,19 +240,54 @@ counters — all without touching the thread pool.
 
 ---
 
-## Building the native shim
+## Building the native library
+
+### Using the helper scripts (recommended)
+
+Two scripts in `native/scripts/` cover the full local build workflow:
+
+| Script | Purpose |
+|---|---|
+| `gen-vmlinux.sh` | Generates `native/probes/vmlinux.h` from the running kernel's BTF via `bpftool` |
+| `build-and-install.sh` | Builds `libkerneltrace.so` + all `.bpf.o` probes and copies them into `runtimes/<RID>/native/` |
+
+```bash
+# 1. Generate vmlinux.h — required once per kernel version (file is gitignored)
+bash native/scripts/gen-vmlinux.sh
+
+# 2. Build libkerneltrace.so + *.bpf.o and install into runtimes/<RID>/native/
+bash native/scripts/build-and-install.sh
+```
+
+`build-and-install.sh` auto-detects the host architecture **and** libc variant:
+
+| Architecture | glibc | musl (Alpine, Void Linux, …) |
+|---|---|---|
+| x86_64 | `linux-x64` | `linux-musl-x64` |
+| aarch64 | `linux-arm64` | `linux-musl-arm64` |
+| armv7l | `linux-arm` | `linux-musl-arm` |
+
+The output lands in `runtimes/<RID>/native/` — exactly where the .NET SDK
+native-asset resolver and `dotnet pack` expect it, so no extra configuration
+is needed.
+
+→ Full walkthrough in [docs/getting-started.md — Building from source](docs/getting-started.md#building-the-native-library-from-source)
+
+### Manual cmake build
+
+For fine-grained control or to skip probe compilation:
 
 ```bash
 cd native
 cmake -B build -DCMAKE_BUILD_TYPE=Release   # KERNELTRACE_BUILD_PROBES=ON by default
 cmake --build build -j$(nproc)              # builds libkerneltrace.so + all .bpf.o probes
-sudo cmake --install build
+sudo cmake --install build                   # installs into /usr/local
 ```
 
-To skip eBPF probe compilation (e.g. on a host without clang):
+To skip eBPF probe compilation (no clang required):
 
 ```bash
-cmake -B build -DKERNELTRACE_BUILD_PROBES=OFF
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DKERNELTRACE_BUILD_PROBES=OFF
 cmake --build build -j$(nproc)
 ```
 

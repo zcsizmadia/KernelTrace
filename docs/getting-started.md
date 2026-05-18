@@ -370,6 +370,78 @@ dotnet-kerneltrace kallsyms-resolve 0xffffffff81234567
 
 See the [API reference](api-reference.md#dotnet-kerneltrace-cli--feature-9) for all options.
 
+## Building the native library from source
+
+If you are working from a source checkout (rather than installing via NuGet),
+you must build the native library before running `dotnet build` or `dotnet run`.
+Two scripts in `native/scripts/` automate this:
+
+| Script | Purpose |
+|---|---|
+| `gen-vmlinux.sh` | Generates `native/probes/vmlinux.h` from the running kernel's BTF via `bpftool` |
+| `build-and-install.sh` | Builds `libkerneltrace.so` and all `.bpf.o` probe objects, then copies them into `runtimes/<RID>/native/` |
+
+### Build-time prerequisites
+
+| Tool | Version | Ubuntu/Debian | Alpine |
+|---|---|---|---|
+| `clang` | ≥ 14 | `apt install clang` | `apk add clang` |
+| `cmake` | ≥ 3.20 | `apt install cmake` | `apk add cmake` |
+| `libbpf-dev` | ≥ 1.0 | `apt install libbpf-dev` | `apk add libbpf-dev` |
+| `pkg-config` | any | `apt install pkg-config` | `apk add pkgconf` |
+| `bpftool` | ≥ 5.13 | `apt install linux-tools-$(uname -r) linux-tools-common` | `apk add bpftool` |
+
+### Step 1 — Generate `vmlinux.h` (once per kernel version)
+
+`vmlinux.h` is a single-file BTF dump of all kernel types.  It is **not**
+committed to the repository because it is kernel-version-specific.
+
+```bash
+bash native/scripts/gen-vmlinux.sh
+```
+
+This writes `native/probes/vmlinux.h` from `/sys/kernel/btf/vmlinux`.  Re-run
+it whenever you upgrade the kernel or switch to a different machine.
+
+### Step 2 — Build and install the native artefacts
+
+```bash
+bash native/scripts/build-and-install.sh
+```
+
+The script automatically:
+
+1. Detects the host architecture (`x86_64` → `linux-x64`, `aarch64` → `linux-arm64`).
+2. Detects the libc variant — musl (Alpine, Void Linux, …) adds a `-musl` RID
+   suffix (e.g. `linux-musl-x64`) using `ldd --version`.
+3. Runs CMake with `-DCMAKE_BUILD_TYPE=Release -DKERNELTRACE_BUILD_PROBES=ON`.
+4. Copies `libkerneltrace.so` and all `*.bpf.o` files into
+   `runtimes/<RID>/native/` — the path the .NET native-asset resolver and
+   `dotnet pack` use automatically.
+
+After both steps, ordinary `dotnet build` / `dotnet run` commands work with no
+additional configuration.
+
+### Skipping BPF probe compilation
+
+If `clang` or `bpftool` is unavailable, you can build only the native shim
+(no `.bpf.o` probes):
+
+```bash
+cmake -S native -B native/build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DKERNELTRACE_BUILD_PROBES=OFF
+cmake --build native/build --parallel $(nproc)
+mkdir -p runtimes/$(uname -m | sed 's/x86_64/linux-x64/;s/aarch64/linux-arm64/')/native
+cp native/build/libkerneltrace.so runtimes/.../native/
+```
+
+Note that pre-built `.bpf.o` files are required to create a
+`KernelTraceSession` at runtime; without them only unit tests that use
+`FakeNativeInterop` will work.
+
+---
+
 ## Next Steps
 
 - [Architecture](architecture.md) — ring buffer internals, threading model

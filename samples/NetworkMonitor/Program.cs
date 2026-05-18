@@ -102,10 +102,14 @@ static unsafe string ReadNullTerminatedString(in SocketConnectEvent ev, int maxL
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public unsafe partial struct SocketConnectEvent
 {
+    public ulong  TimestampNs;
     public uint   Pid;
+    public uint   Tgid;
+    public uint   Uid;
     public uint   SrcIp;
     public uint   DstIp;
     public ushort SrcPort;
     public ushort DstPort;
     public fixed byte Comm[16];
+    public byte   Family;
 }

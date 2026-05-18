@@ -239,7 +239,7 @@ dotnet run
 
 ### What it demonstrates
 
-- Attaching eight tracepoints from four categories (`irq`, `lock`, `power`) in
+- Attaching eight tracepoints from three categories (`irq`, `lock`, `power`) in
   a single session.
 - Using `ReadRawAsync` to dispatch events to different accumulators based on
   payload size.
@@ -383,49 +383,62 @@ Probes = [new TracepointSpec { Category = "syscalls", Name = "sys_enter_openat" 
 **Path:** `samples/UsdtPythonTracer/`  
 **Probe:** `usdt_python.bpf.o`
 
-Attaches to Python 3's built-in `function__entry` USDT probe and prints every
-Python function call — filename, function name, and line number — in real time.
+Attaches to Python 3's built-in `gc__start` and `gc__done` USDT probes and
+prints every Python garbage-collection cycle in real time — generation number
+on start, objects collected on completion.
 
-Optionally set the `PYTHON_PID` environment variable to restrict tracing to a
-single Python process.
+The sample also spawns a background Python subprocess that triggers GC
+repeatedly, so events are always visible even without an external Python
+process running.  Optionally set the `PYTHON_PID` environment variable to
+restrict tracing to a single Python process.
 
 ### Run
 
 ```bash
-# In one terminal: run any Python script
-python3 -c "import http.server; http.server.test()"
-
-# In another terminal:
 cd samples/UsdtPythonTracer
+dotnet run
+
+# Or restrict to one process:
 PYTHON_PID=$(pgrep python3) dotnet run
 ```
 
 ### What it demonstrates
 
-- `UsdtSpec` — attaching to a USDT probe point by provider and probe name.
+- `UsdtSpec` — attaching to multiple USDT probe points in a single session.
 - `UsdtSpec.Pid` — filtering by a specific process ID (`-1` = all processes).
-- `UsdtSpec.ProgramSection` — specifying the BPF program section that handles
-  the USDT tracepoint.
-- Reading `char[64]` C-string fields (`filename`, `funcname`) from BPF events.
+- `UsdtSpec.ProgramSection` — specifying the BPF section per probe.
+- Using two probe specs (`gc__start`, `gc__done`) that share one event struct
+  with an `IsEnd` discriminator field.
+- Spawning a helper subprocess to generate observable events.
 
 ### Key probe config
 
 ```csharp
+// gc__start fires when a GC cycle begins; arg0 = generation (0/1/2).
 new UsdtSpec
 {
     BinaryPath     = "/usr/bin/python3",
     Provider       = "python",
-    Name           = "function__entry",
-    ProgramSection = "usdt/python:function__entry",
+    Name           = "gc__start",
+    ProgramSection = "usdt/python:gc__start",
     Pid            = targetPid,  // -1 for all processes
-}
+},
+// gc__done fires when a GC cycle ends; arg0 = number of objects collected.
+new UsdtSpec
+{
+    BinaryPath     = "/usr/bin/python3",
+    Provider       = "python",
+    Name           = "gc__done",
+    ProgramSection = "usdt/python:gc__done",
+    Pid            = targetPid,
+},
 ```
 
 ### Requirements
 
-- Python 3 compiled with USDT probes (package `python3-dbg` on Debian/Ubuntu,
-  or build with `--enable-dtrace`).
-- Check with: `readelf -n /usr/bin/python3 | grep -i sdt`
+- Python 3 with USDT probes enabled (all standard Debian/Ubuntu/Fedora
+  packages include `gc__start` / `gc__done`; no `python3-dbg` required).
+- Check with: `readelf -n /usr/bin/python3 | grep -i gc__`
 
 ---
 
