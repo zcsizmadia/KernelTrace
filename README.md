@@ -4,8 +4,7 @@
 
 KernelTrace bridges Linux eBPF and the .NET managed runtime.  Attach to kernel
 tracepoints, kprobes, and uprobes, stream type-safe events through a lock-free
-ring buffer, and export metrics to Prometheus or OpenTelemetry — all from
-within your own process, with zero sidecars or agents.
+ring buffer — all from within your own process, with zero sidecars or agents.
 
 [![NuGet](https://img.shields.io/nuget/v/KernelTrace.svg)](https://www.nuget.org/packages/KernelTrace)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -26,7 +25,7 @@ Kernel observability for .NET has historically meant spawning external processes
 | Root or broad `CAP_SYS_ADMIN` | Just `CAP_BPF` + `CAP_PERFMON` on your binary |
 | Custom threading and polling glue | Lock-free ring buffer with `AboveNormal` polling thread |
 | No integration with .NET tooling | `IAsyncEnumerable<T>`, `CancellationToken`, `IHostedService` |
-| No metrics story | Built-in `System.Diagnostics.Metrics`, Prometheus, OpenTelemetry |
+| No metrics story | Built-in `System.Diagnostics.Metrics` |
 
 ---
 
@@ -51,7 +50,7 @@ Kernel observability for .NET has historically meant spawning external processes
 | **ILogger integration** | `.WithLogging()` and `LogEventsAsync()` for structured event logging |
 | **Hot attach/detach** | Add and remove probes while the session is running |
 | **Current-process filter** | `CurrentProcessOnly=true` drops foreign PIDs in-kernel |
-| **Metrics** | `System.Diagnostics.Metrics`, Prometheus, and OpenTelemetry out of the box |
+| **Metrics** | `System.Diagnostics.Metrics` out of the box |
 | **ASP.NET Core hosting** | `AddKernelTrace()` + `IHostedService` integration |
 | **AOT-safe** | `LibraryImport` source-generated P/Invoke throughout |
 
@@ -180,8 +179,6 @@ regardless of scope.
 |---|---|
 | `KernelTrace` | Core library — session, ring buffer, source generator |
 | `KernelTrace.AspNetCore` | `IHostedService` + `IServiceCollection` extensions |
-| `KernelTrace.Prometheus` | Exports metrics to prometheus-net |
-| `KernelTrace.OpenTelemetry` | Adds KernelTrace meter to OpenTelemetry |
 
 ---
 

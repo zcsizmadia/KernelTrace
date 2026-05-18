@@ -33,7 +33,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/zcsizmadia/kerneltrace</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>ebpf;linux;kernel;tracing;observability;prometheus;opentelemetry;kprobe;tracepoint;ringbuffer</PackageTags>
+    <PackageTags>ebpf;linux;kernel;tracing;observability;kprobe;tracepoint;ringbuffer</PackageTags>
     <PackageProjectUrl>https://github.com/zcsizmadia/kerneltrace</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

@@ -6,7 +6,7 @@ namespace KernelTrace.Diagnostics;
 /// Live metrics for a <see cref="Sessions.KernelTraceSession"/>.
 /// All counters are wired into the <c>System.Diagnostics.Metrics</c>
 /// infrastructure (meter name: <c>"KernelTrace"</c>), making them
-/// compatible with OpenTelemetry and <c>dotnet-counters</c> for live inspection.
+/// compatible with <c>dotnet-counters</c> for live inspection.
 /// </summary>
 public sealed class KernelTraceMetrics : IDisposable
 {
@@ -64,13 +64,13 @@ public sealed class KernelTraceMetrics : IDisposable
             "kerneltrace.events.received.snapshot",
             () => TotalReceived,
             unit: "{events}",
-            description: "Snapshot of total received events (observable gauge for Prometheus).");
+            description: "Snapshot of total received events.");
 
         _meter.CreateObservableGauge(
             "kerneltrace.events.dropped.snapshot",
             () => TotalDropped,
             unit: "{events}",
-            description: "Snapshot of total dropped events (observable gauge for Prometheus).");
+            description: "Snapshot of total dropped events.");
     }
 
     // ── Internal mutation API (called by the polling thread) ─────────────────

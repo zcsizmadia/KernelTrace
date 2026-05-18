@@ -181,9 +181,7 @@ Thread-safe counters and histograms.  Available via `KernelTraceSession.Metrics`
 | `TotalReceived` | `long` | Events successfully drained from ring buffer. |
 | `TotalDropped` | `long` | Events dropped due to channel backpressure. |
 | `TotalPolls` | `long` | Number of `epoll_wait` iterations. |
-| `MeterName` | `const string "KernelTrace"` | Meter name for OpenTelemetry. |
-
-**Instrument names** (for Prometheus / OTEL dashboards):
+**Instrument names**:
 
 | Instrument | Type | Description |
 |---|---|---|
@@ -245,41 +243,6 @@ Registers:
 
 Manages the `KernelTraceSession` lifetime within the ASP.NET Core host.
 `StartAsync` creates the session; `StopAsync` disposes it.
-
----
-
-## KernelTrace.Prometheus
-
-### `IServiceCollection.AddKernelTraceMetrics`
-
-```csharp
-builder.Services.AddKernelTraceMetrics();
-```
-
-Registers a `KernelTracePrometheusCollector` that publishes
-`KernelTraceMetrics` counters to the default Prometheus registry.
-
-### Exposed Prometheus metrics
-
-| Metric | Labels |
-|---|---|
-| `kerneltrace_events_received_total` | — |
-| `kerneltrace_events_dropped_total` | — |
-| `kerneltrace_ring_buffer_polls_total` | — |
-
----
-
-## KernelTrace.OpenTelemetry
-
-### `MeterProviderBuilder.AddKernelTraceInstrumentation`
-
-```csharp
-builder.Services.AddOpenTelemetry()
-    .WithMetrics(m => m.AddKernelTraceInstrumentation());
-```
-
-Adds the `"KernelTrace"` meter to the OpenTelemetry pipeline.  All instruments
-registered in `KernelTraceMetrics` are automatically exported.
 
 ---
 

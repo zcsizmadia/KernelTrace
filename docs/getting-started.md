@@ -2,8 +2,7 @@
 
 KernelTrace is an in-process eBPF kernel tracing library for .NET.  It lets you
 attach to kernel tracepoints, kprobes, and uprobes from managed code, stream
-kernel events as strongly-typed .NET structs, and export metrics to Prometheus
-or OpenTelemetry — all without spawning a sidecar process.
+kernel events as strongly-typed .NET structs — all without spawning a sidecar process.
 
 ## Prerequisites
 
@@ -319,30 +318,6 @@ builder.Services.AddKernelTrace(options =>
 ```
 
 The `KernelTraceHostedService` manages the session lifetime automatically.
-
-## Metrics
-
-### Prometheus
-
-```bash
-dotnet add package KernelTrace.Prometheus
-```
-
-```csharp
-builder.Services.AddKernelTraceMetrics();
-app.MapMetrics("/metrics");
-```
-
-### OpenTelemetry
-
-```bash
-dotnet add package KernelTrace.OpenTelemetry
-```
-
-```csharp
-builder.Services.AddOpenTelemetry()
-    .WithMetrics(m => m.AddKernelTraceInstrumentation());
-```
 
 ## Building the native library from source
 
