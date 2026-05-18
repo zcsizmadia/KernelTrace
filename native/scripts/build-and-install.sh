@@ -78,14 +78,14 @@ if [[ ! -f "${SO_SRC}" ]]; then
     echo "ERROR: Expected ${SO_SRC} — did the build succeed?" >&2
     exit 1
 fi
-cp --preserve=timestamps "${SO_SRC}" "${DEST_DIR}/libkerneltrace.so"
+cp -p "${SO_SRC}" "${DEST_DIR}/libkerneltrace.so"
 echo "  ✔  libkerneltrace.so"
 
 # eBPF probe objects compiled by clang
 PROBE_COUNT=0
 for OBJ in "${BUILD_DIR}"/*.bpf.o; do
     [[ -f "${OBJ}" ]] || continue
-    cp --preserve=timestamps "${OBJ}" "${DEST_DIR}/"
+    cp -p "${OBJ}" "${DEST_DIR}/"
     echo "  ✔  $(basename "${OBJ}")"
     PROBE_COUNT=$(( PROBE_COUNT + 1 ))
 done

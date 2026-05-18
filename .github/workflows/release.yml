@@ -60,12 +60,16 @@ jobs:
           # Path to the specific nupkg we want
           TARGET_NUPKGS="KernelTrace KernelTrace.SourceGenerators KernelTrace.AspNetCore"
 
-          # Verify the file exists with that version
+          # Verify both .nupkg and .snupkg exist for every package
           for NUPKG in $TARGET_NUPKGS; do
             NUPKG_FILE="./nupkgs/$NUPKG.$TAG_VERSION.nupkg"
+            SNUPKG_FILE="./nupkgs/$NUPKG.$TAG_VERSION.snupkg"
             if [[ ! -f "$NUPKG_FILE" ]]; then
               echo "::error::Could not find $NUPKG_FILE in downloaded artifacts"
               exit 1
+            fi
+            if [[ ! -f "$SNUPKG_FILE" ]]; then
+              echo "::warning::Could not find $SNUPKG_FILE — symbols will not be published"
             fi
           done
 
@@ -79,6 +83,11 @@ jobs:
         run: |
           for NUPKG in $TARGET_NUPKGS; do
             gh release upload ${{ github.event.release.tag_name }} "./nupkgs/$NUPKG.$TAG_VERSION.nupkg" --clobber
+            # Attach .snupkg as a release asset too (GitHub Packages NuGet does
+            # not support snupkg, but users can download them directly here).
+            if [[ -f "./nupkgs/$NUPKG.$TAG_VERSION.snupkg" ]]; then
+              gh release upload ${{ github.event.release.tag_name }} "./nupkgs/$NUPKG.$TAG_VERSION.snupkg" --clobber
+            fi
           done
 
       - name: Publish to NuGet.org
@@ -86,9 +95,18 @@ jobs:
         run: |
           for NUPKG in $TARGET_NUPKGS; do
             dotnet nuget push "./nupkgs/$NUPKG.$TAG_VERSION.nupkg" \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+              --api-key "${{ secrets.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
+              --skip-duplicate
+            # NuGet.org symbol server (symbols.nuget.org) accepts .snupkg files,
+            # enabling source-link and debugger symbol downloads for consumers.
+            # GitHub Packages does NOT support .snupkg — only push here.
+            if [[ -f "./nupkgs/$NUPKG.$TAG_VERSION.snupkg" ]]; then
+              dotnet nuget push "./nupkgs/$NUPKG.$TAG_VERSION.snupkg" \
+                --api-key "${{ secrets.NUGET_API_KEY }}" \
+                --source https://api.nuget.org/v3/index.json \
+                --skip-duplicate
+            fi
           done
 
       - name: Publish to GitHub Packages
