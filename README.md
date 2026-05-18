@@ -53,7 +53,6 @@ Kernel observability for .NET has historically meant spawning external processes
 | **Current-process filter** | `CurrentProcessOnly=true` drops foreign PIDs in-kernel |
 | **Metrics** | `System.Diagnostics.Metrics`, Prometheus, and OpenTelemetry out of the box |
 | **ASP.NET Core hosting** | `AddKernelTrace()` + `IHostedService` integration |
-| **CLI tool** | `dotnet-kerneltrace` — `btf-check`, `trace`, `map-dump`, `kallsyms-resolve` commands |
 | **AOT-safe** | `LibraryImport` source-generated P/Invoke throughout |
 
 ---

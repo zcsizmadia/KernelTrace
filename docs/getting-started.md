@@ -344,32 +344,6 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m.AddKernelTraceInstrumentation());
 ```
 
-## Command-line tool
-
-The `dotnet-kerneltrace` global tool provides quick command-line access without
-writing any C# code:
-
-```bash
-dotnet tool install --global dotnet-kerneltrace
-
-# Check BTF availability
-dotnet-kerneltrace btf-check
-
-# Stream raw events from a probe for 20 events
-dotnet-kerneltrace trace network_monitor.bpf.o \
-    --probe-type tracepoint --category syscalls --name sys_enter_connect \
-    --limit 20
-
-# Dump all entries of a BPF map
-dotnet-kerneltrace map-dump network_monitor.bpf.o counts \
-    --probe-name sys_enter_connect --category syscalls
-
-# Resolve kernel addresses
-dotnet-kerneltrace kallsyms-resolve 0xffffffff81234567
-```
-
-See the [API reference](api-reference.md#dotnet-kerneltrace-cli--feature-9) for all options.
-
 ## Building the native library from source
 
 If you are working from a source checkout (rather than installing via NuGet),

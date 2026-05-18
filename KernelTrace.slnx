@@ -4,7 +4,6 @@
   <Folder Name="/src/">
     <Project Path="src/KernelTrace/KernelTrace.csproj" />
     <Project Path="src/KernelTrace.SourceGenerators/KernelTrace.SourceGenerators.csproj" />
-    <Project Path="src/dotnet-kerneltrace/dotnet-kerneltrace.csproj" />
     <Project Path="src/KernelTrace.AspNetCore/KernelTrace.AspNetCore.csproj" />
   </Folder>
 

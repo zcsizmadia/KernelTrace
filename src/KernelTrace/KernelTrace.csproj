@@ -43,6 +43,16 @@
           Pack="true"
           PackagePath="runtimes/linux-arm64/native/libkerneltrace.so"
           Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-x64\native\libkerneltrace.so"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-x64\native\libkerneltrace.so')"
+          Pack="true"
+          PackagePath="runtimes/linux-musl-x64/native/libkerneltrace.so"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-arm64\native\libkerneltrace.so"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-arm64\native\libkerneltrace.so')"
+          Pack="true"
+          PackagePath="runtimes/linux-musl-arm64/native/libkerneltrace.so"
+          Visible="false" />
     <!-- eBPF probe objects — copied alongside the .so by build-and-install.sh.
          Each .bpf.o is a compiled BPF ELF object that the consumer passes as
          SessionOptions.ProbePath at runtime. -->
@@ -53,6 +63,14 @@
     <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-arm64\native\*.bpf.o"
           Pack="true"
           PackagePath="runtimes/linux-arm64/native/"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-x64\native\*.bpf.o"
+          Pack="true"
+          PackagePath="runtimes/linux-musl-x64/native/"
+          Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\linux-musl-arm64\native\*.bpf.o"
+          Pack="true"
+          PackagePath="runtimes/linux-musl-arm64/native/"
           Visible="false" />
   </ItemGroup>
 
