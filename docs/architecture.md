@@ -145,15 +145,98 @@ This catches kernel-version skew early rather than silently reading garbage.
 
 The native shim is a thin C99 wrapper around `libbpf`.  Its responsibilities:
 
-- Load and verify `.bpf.o` files (`bpf_object__open` / `bpf_object__load`).
-- Attach probes via `bpf_program__attach`, `bpf_program__attach_uprobe`.
+- Load and verify `.bpf.o` files (`bpf_object__open_file` / `bpf_object__load`).
+- Optionally supply a custom BTF path for CO-RE on kernels without BTF
+  (`LIBBPF_OPTS(bpf_object_open_opts, opts, .btf_custom_path = ...)`).
+- Attach probes via `bpf_program__attach`, `bpf_program__attach_uprobe`,
+  and `bpf_program__attach_usdt`.
 - Return the ring-buffer map fd (`bpf_map__fd`).
 - `mmap` / `munmap` the ring-buffer memory region.
 - Create and manage `epoll` instances.
-- Query BTF struct sizes.
+- Expose raw BPF map operations (`bpf_map_lookup_elem`, `bpf_map_update_elem`,
+  `bpf_map_delete_elem`, `bpf_map_get_next_key`) for `BpfMap<TKey,TValue>`.
+- Query BTF struct sizes for `ValidateStructLayouts`.
 
 The shim exports only symbols prefixed with `kt_`; all other symbols have
-hidden visibility.
+hidden visibility (`-fvisibility=hidden`).
+
+## BPF map access (`BpfMap<TKey, TValue>`)
+
+`KernelTraceSession.GetMap<TKey,TValue>(mapName)` opens any BPF map in the
+loaded object by name.  The managed `BpfMap<TKey,TValue>` class marshals keys
+and values using `MemoryMarshal.AsBytes` and delegates to the five native
+map-operation functions (`kt_map_lookup`, `kt_map_update`, `kt_map_delete`,
+`kt_map_get_next_key`, `kt_map_get_info`).
+
+`Iterate()` / `IterateAsync()` walk the map by calling `GetNextKey` until it
+returns `ENOENT`, yielding one `KeyValuePair<TKey,TValue>` per entry.
+
+`StackTraceMap` is a thin specialization over `BpfMap<int, ulong[]>` that
+interprets entries as fixed-length address arrays (length = `MaxDepth`).
+
+## ILogger integration
+
+`KernelTraceLoggerExtensions` adds two extension methods:
+
+- `.WithLogging<T>()` wraps an `IAsyncEnumerable<T>` with an async iterator
+  that logs each value before yielding it downstream — zero overhead when the
+  log level is not enabled.
+- `LogEventsAsync<T>()` is a convenience overload that calls `ReadAsync<T>`
+  internally and logs until the token is cancelled.
+
+## USDT probe attachment
+
+USDT probes are implemented as NOP-patched uprobe points decorated with ELF
+`.note.stapsdt` notes.  `kt_attach_usdt` calls `bpf_program__attach_usdt` from
+libbpf ≥ 0.8, which reads the SDT notes, resolves the uprobe location, and
+installs a hardware breakpoint at that address.
+
+The managed `UsdtSpec` translates to a `kt_attach_usdt` call with:
+- `binary_path` — ELF binary or shared library containing the probe notes.
+- `provider` / `name` — SDT provider and probe name.
+- `prog_section` — BPF program `SEC(...)` string to look up in the BPF object.
+- `pid` — `-1` for system-wide, or a specific PID to restrict the uprobe.
+
+## CO-RE and BTF loading
+
+When `SessionOptions.BtfCustomPath` is set, the session passes the path to
+`bpf_object__open_file` via `LIBBPF_OPTS`:
+
+```c
+LIBBPF_OPTS(bpf_object_open_opts, open_opts,
+    .btf_custom_path = btf_custom_path,
+);
+struct bpf_object *obj = bpf_object__open_file(path, &open_opts);
+```
+
+libbpf uses the supplied archive instead of `/sys/kernel/btf/vmlinux` for
+CO-RE relocation fixups.  This allows the same `.bpf.o` to run on kernels that
+lack built-in BTF (older distros, minimal container images).
+
+`KernelTraceSession.IsBtfAvailable()` simply checks whether
+`/sys/kernel/btf/vmlinux` exists and is readable.
+
+## eBPF probe build system
+
+The `native/CMakeLists.txt` compiles probes with clang targeting the BPF
+architecture.  Key build-system decisions:
+
+- **`KERNELTRACE_BUILD_PROBES`** defaults to `ON`; set `OFF` on hosts without
+  clang.
+- **Arch-aware CFLAGS**: `CMAKE_SYSTEM_PROCESSOR` is mapped to the matching
+  `__TARGET_ARCH_*` define and multiarch include path.  Supported:
+
+  | Host | BPF define | Multiarch path |
+  |---|---|---|
+  | x86_64 | `__TARGET_ARCH_x86` | `/usr/include/x86_64-linux-gnu` |
+  | aarch64 / arm64 | `__TARGET_ARCH_arm64` | `/usr/include/aarch64-linux-gnu` |
+  | armv7 | `__TARGET_ARCH_arm` | `/usr/include/arm-linux-gnueabihf` |
+  | riscv64 | `__TARGET_ARCH_riscv` | `/usr/include/riscv64-linux-gnu` |
+  | s390x | `__TARGET_ARCH_s390` | `/usr/include/s390x-linux-gnu` |
+
+- **musl fallback**: if the multiarch subdirectory does not exist (Alpine,
+  musl toolchains), the build falls back to `/usr/include` where musl places
+  arch headers directly.
 
 ## Error handling
 

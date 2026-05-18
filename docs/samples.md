@@ -1,6 +1,6 @@
 # Samples
 
-KernelTrace ships nine ready-to-run samples that demonstrate the full range of
+KernelTrace ships twelve ready-to-run samples that demonstrate the full range of
 the library's capabilities.  Each sample is a self-contained .NET console
 application that can be run with `dotnet run` (with the appropriate Linux
 capabilities).

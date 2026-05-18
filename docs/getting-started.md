@@ -128,6 +128,7 @@ await session.ProcessAsync<SocketConnectEvent>(
 | Tracepoint | `TracepointSpec` | Stable kernel ABI. Prefer over kprobes. |
 | kprobe | `KprobeSpec` | Arbitrary kernel function entry or return. |
 | uprobe | `UprobeSpec` | User-space function entry or return (e.g., libc, .NET runtime). |
+| USDT | `UsdtSpec` | DTrace/SystemTap probe points in Python, Node.js, and SDT-annotated binaries. |
 
 ```csharp
 // Tracepoint
@@ -141,11 +142,96 @@ new KprobeSpec { FunctionName = "tcp_connect", ReturnProbe = true }
 
 // uprobe
 new UprobeSpec { BinaryPath = "/usr/lib/x86_64-linux-gnu/libc.so.6", Offset = 0x1234 }
+
+// USDT — Python function__entry probe
+new UsdtSpec
+{
+    BinaryPath     = "/usr/bin/python3",
+    Provider       = "python",
+    Name           = "function__entry",
+    ProgramSection = "usdt/python:function__entry",
+    Pid            = -1,  // -1 = all processes
+}
 ```
 
-## Hot Attach / Detach
+## BPF Map Access
 
-Probes can be added and removed while the session is running:
+Read or write any BPF map from .NET using `GetMap<TKey,TValue>`:
+
+```csharp
+// Open a hash map named "counts" exposed by the probe
+var counts = session.GetMap<uint, ulong>("counts");
+
+// Point lookup
+ulong? hits = counts.Lookup(myPid);
+
+// Iterate all entries (snapshot)
+foreach (var (pid, count) in counts.Iterate())
+    Console.WriteLine($"PID {pid}: {count} events");
+
+// Write a config value into a BPF array map
+var cfg = session.GetMap<uint, uint>("config");
+cfg.Update(0, 42);
+```
+
+See [`BpfMap<TKey,TValue>` in the API reference](api-reference.md#bpfmaptkey-tvalue) for the full surface.
+
+## Stack Traces
+
+Capture and symbolize kernel and user-space stacks:
+
+```csharp
+var stackMap = session.GetStackTraceMap("stacks");  // BPF_MAP_TYPE_STACK_TRACE
+var resolver = KernelSymbolResolver.Load();          // reads /proc/kallsyms
+
+await foreach (var ev in session.ReadAsync<MySampleEvent>())
+{
+    ulong[] frames = stackMap.Lookup(ev.KernelStackId);
+    string[] symbols = resolver.ResolveStack(frames);
+    Console.WriteLine(string.Join("\n  ", symbols));
+}
+```
+
+## ILogger Integration
+
+Log every event without changing your existing event loop:
+
+```csharp
+// Transparent tap — logs each event, then yields it downstream
+await foreach (var ev in session.ReadAsync<MyEvent>()
+                                .WithLogging(logger, LogLevel.Debug))
+{
+    Process(ev);
+}
+
+// Fire-and-forget background logger
+await session.LogEventsAsync<MyEvent>(
+    logger,
+    formatter: ev => $"PID={ev.Pid}",
+    cancellationToken: cts.Token);
+```
+
+## CO-RE (Compile Once – Run Everywhere)
+
+Supply a custom BTF archive when the target kernel has no built-in BTF:
+
+```csharp
+bool hasBtf = KernelTraceSession.IsBtfAvailable();
+
+new SessionOptions
+{
+    ProbePath     = "my_probe.bpf.o",
+    // Optional: path from BTFHub or pahole for kernels without /sys/kernel/btf/vmlinux
+    BtfCustomPath = hasBtf ? null : "/path/to/vmlinux-5.15.btf",
+    // Enable verbose libbpf loader logging for troubleshooting
+    DebugOutput   = Environment.GetEnvironmentVariable("KT_DEBUG") == "1",
+}
+```
+
+BTF archives for common kernel versions are available from
+[BTFHub](https://github.com/aquasecurity/btfhub).
+
+
 
 ```csharp
 var token = await session.AttachAsync(new KprobeSpec { FunctionName = "tcp_retransmit_skb" });
@@ -257,6 +343,32 @@ dotnet add package KernelTrace.OpenTelemetry
 builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m.AddKernelTraceInstrumentation());
 ```
+
+## Command-line tool
+
+The `dotnet-kerneltrace` global tool provides quick command-line access without
+writing any C# code:
+
+```bash
+dotnet tool install --global dotnet-kerneltrace
+
+# Check BTF availability
+dotnet-kerneltrace btf-check
+
+# Stream raw events from a probe for 20 events
+dotnet-kerneltrace trace network_monitor.bpf.o \
+    --probe-type tracepoint --category syscalls --name sys_enter_connect \
+    --limit 20
+
+# Dump all entries of a BPF map
+dotnet-kerneltrace map-dump network_monitor.bpf.o counts \
+    --probe-name sys_enter_connect --category syscalls
+
+# Resolve kernel addresses
+dotnet-kerneltrace kallsyms-resolve 0xffffffff81234567
+```
+
+See the [API reference](api-reference.md#dotnet-kerneltrace-cli--feature-9) for all options.
 
 ## Next Steps
 

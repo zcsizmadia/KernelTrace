@@ -162,8 +162,15 @@ int handle_page_free(struct trace_event_raw_mm_page_free *ctx)
  *
  * PT_REGS_PARM1 = vma, PT_REGS_PARM2 = address, PT_REGS_PARM3 = flags
  */
+/* BPF_KPROBE extracts arguments from arch-specific registers without
+ * requiring a complete 'struct user_pt_regs', making it portable across
+ * x86_64, arm64, and other supported BPF architectures.
+ *
+ * handle_mm_fault(struct vm_area_struct *vma, unsigned long address,
+ *                 unsigned int flags, ...) */
 SEC("kprobe/handle_mm_fault")
-int handle_page_fault(struct pt_regs *ctx)
+int BPF_KPROBE(handle_page_fault,
+               void *vma, __u64 address, __u32 flags)
 {
     if (!kt_should_trace()) return 0;
 
@@ -173,10 +180,10 @@ int handle_page_fault(struct pt_regs *ctx)
 
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     ev->timestamp_ns = kt_ktime_ns();
-    ev->address      = PT_REGS_PARM2(ctx);
+    ev->address      = address;
     ev->pid          = (__u32)(pid_tgid & 0xFFFFFFFF);
     ev->tgid         = (__u32)(pid_tgid >> 32);
-    ev->flags        = (__u32)PT_REGS_PARM3(ctx);
+    ev->flags        = flags;
     KT_COMM_READ(ev->comm, sizeof(ev->comm));
 
     bpf_ringbuf_submit(ev, 0);

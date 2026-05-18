@@ -37,16 +37,23 @@ Kernel observability for .NET has historically meant spawning external processes
 | **Tracepoints** | Stable kernel ABI — `tp/sched/sched_switch`, `tp/syscalls/sys_enter_*`, etc. |
 | **kprobes / kretprobes** | Arbitrary kernel function entry and return |
 | **uprobes / uretprobes** | User-space function tracing (libc, JVM, .NET runtime, …) |
+| **USDT probes** | Attach to DTrace/SystemTap probe points in Python, Node.js, and any SDT-annotated binary |
 | **Lock-free ring buffer** | mmap'd `BPF_MAP_TYPE_RINGBUF` consumer — zero syscalls per event |
+| **BPF map access** | Read/write any BPF map (`BpfMap<TKey,TValue>`) from .NET — hash, array, LRU, and more |
+| **Stack traces** | `StackTraceMap` + `KernelSymbolResolver` for kernel and user-space frame symbolization |
+| **In-kernel aggregation** | Use `BpfMap` to read pre-aggregated counters/histograms kept in kernel space |
+| **CO-RE support** | Supply a custom BTF archive (`BtfCustomPath`) for kernels without built-in BTF |
 | **Source generator** | Auto-generates C# structs from `.bpf.c` definitions at build time |
 | **BTF validation** | Struct size verified against kernel BTF on session start |
 | **IAsyncEnumerable** | Idiomatic `await foreach` event streaming |
 | **Zero-copy callbacks** | `ProcessAsync<T>` — callback receives a `ref readonly T` from mmap memory |
 | **Raw byte streaming** | `ReadRawAsync()` — consume un-typed events for dynamic/multi-schema probes |
+| **ILogger integration** | `.WithLogging()` and `LogEventsAsync()` for structured event logging |
 | **Hot attach/detach** | Add and remove probes while the session is running |
 | **Current-process filter** | `CurrentProcessOnly=true` drops foreign PIDs in-kernel |
 | **Metrics** | `System.Diagnostics.Metrics`, Prometheus, and OpenTelemetry out of the box |
 | **ASP.NET Core hosting** | `AddKernelTrace()` + `IHostedService` integration |
+| **CLI tool** | `dotnet-kerneltrace` — `btf-check`, `trace`, `map-dump`, `kallsyms-resolve` commands |
 | **AOT-safe** | `LibraryImport` source-generated P/Invoke throughout |
 
 ---
@@ -215,6 +222,9 @@ counters — all without touching the thread pool.
 | [`samples/KernelInternals`](samples/KernelInternals) | `kernel_internals.bpf.o` | IRQ latency, lock contention, CPU P/C-state dashboard |
 | [`samples/ContainerMonitor`](samples/ContainerMonitor) | `container_monitor.bpf.o` | Container-attributed events via cgroup v2 |
 | [`samples/DotNetRuntime`](samples/DotNetRuntime) | `dotnet_runtime.bpf.o` | .NET CLR uprobe tracing — GC, exceptions, JIT |
+| [`samples/StackSampler`](samples/StackSampler) | `stack_sampler.bpf.o` | Kernel + user-space stack traces with `/proc/kallsyms` symbolization |
+| [`samples/UsdtPythonTracer`](samples/UsdtPythonTracer) | `usdt_python.bpf.o` | Python 3 USDT `function__entry` tracer |
+| [`samples/CoreRelocations`](samples/CoreRelocations) | `network_monitor.bpf.o` | CO-RE demo: custom BTF path, `IsBtfAvailable()`, debug output |
 
 → [Samples documentation](docs/samples.md)
 
@@ -234,17 +244,23 @@ counters — all without touching the thread pool.
 
 ```bash
 cd native
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
+cmake -B build -DCMAKE_BUILD_TYPE=Release   # KERNELTRACE_BUILD_PROBES=ON by default
+cmake --build build -j$(nproc)              # builds libkerneltrace.so + all .bpf.o probes
 sudo cmake --install build
 ```
 
-To also compile eBPF probe objects (requires clang and bpftool):
+To skip eBPF probe compilation (e.g. on a host without clang):
 
 ```bash
-cmake -B build -DKERNELTRACE_BUILD_PROBES=ON
-cmake --build build --target ebpf_probes
+cmake -B build -DKERNELTRACE_BUILD_PROBES=OFF
+cmake --build build -j$(nproc)
 ```
+
+The build system detects the host architecture (`CMAKE_SYSTEM_PROCESSOR`) and
+sets the appropriate BPF target-arch define and multiarch include path
+automatically.  arm64, armv7, riscv64, s390x, and x86_64 are supported.  On
+musl-based systems (Alpine) the multiarch subdirectory is absent and the build
+falls back to `/usr/include` seamlessly.
 
 ---
 
