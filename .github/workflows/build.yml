@@ -12,25 +12,34 @@ concurrency:
 
 jobs:
   generate-vmlinux:
-    runs-on: ubuntu-latest
-    name: generate vmlinux.h
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    name: Generate vmlinux.h (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v6
 
       - name: Install bpftool
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y bpftool || \
-            sudo apt-get install -y linux-tools-$(uname -r) linux-tools-generic
+          sudo apt-get install -y git make gcc pkg-config libelf-dev libcap-dev zlib1g-dev binutils-dev llvm
+          git clone --depth 1 --recurse-submodules https://github.com/libbpf/bpftool.git
+          pushd bpftool/src
+          sudo make install -j$(nproc)
+          popd
 
       - name: Generate vmlinux.h from kernel BTF
-        run: |
-          bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
+        run: native/scripts/gen-vmlinux.sh
 
       - name: Upload vmlinux.h
         uses: actions/upload-artifact@v7
         with:
-          name: vmlinux-h
+          name: vmlinux-h-${{ matrix.arch }}
           path: native/probes/vmlinux.h
 
   build:
@@ -40,22 +49,27 @@ jobs:
         include:
           - runtimeId: linux-x64
             os: ubuntu-latest
+            vmlinuxArtifact: vmlinux-h-x64
 
           - runtimeId: linux-arm64
             os: ubuntu-24.04-arm
+            vmlinuxArtifact: vmlinux-h-arm64
 
           - runtimeId: linux-musl-x64
             os: ubuntu-latest
             container: alpine:latest
+            vmlinuxArtifact: vmlinux-h-x64
 
           - runtimeId: linux-musl-arm64
             os: ubuntu-24.04-arm
             container: alpine:latest
+            vmlinuxArtifact: vmlinux-h-arm64
 
     needs: [generate-vmlinux]
+    if: always() && needs.generate-vmlinux.result == 'success'
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
-    name: build - (${{ matrix.runtimeId }})
+    name: Build - (${{ matrix.runtimeId }})
 
     steps:
       # action/checkout fails on Alpine Arm64 without this fix
@@ -68,7 +82,7 @@ jobs:
       - name: Download vmlinux.h
         uses: actions/download-artifact@v8
         with:
-          name: vmlinux-h
+          name: ${{ matrix.vmlinuxArtifact }}
           path: native/probes
 
       # Install packages needed for building the native libraries.
@@ -77,7 +91,7 @@ jobs:
         run: |
           if [ -f /etc/alpine-release ]; then
             apk add --no-cache \
-              build-base cmake clang git curl tar bash icu pkgconf libbpf-dev
+              build-base cmake clang git curl tar bash icu pkgconf libbpf-dev linux-headers
           else
             sudo apt-get update -y
             sudo apt-get install -y libbpf-dev clang
@@ -87,24 +101,39 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
+            8.0.x
+            9.0.x
             10.0.x
 
       - name: Build native library
         shell: bash
-        run: |
-          cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build native/build --parallel $(nproc)
+        run: native/scripts/build-and-install.sh
 
       - name: Build
         shell: bash
         run: |
-          dotnet restore -r ${{ matrix.runtimeId }}
-          dotnet build -c Release --no-restore -r ${{ matrix.runtimeId }}
+          dotnet restore
+          dotnet build -c Release --no-restore
 
       - name: Test
         shell: bash
         run: |
-          dotnet test -c Release --no-build --no-restore -r ${{ matrix.runtimeId }}
+          # Integration tests skip automatically without CAP_BPF (no sudo here).
+          dotnet test -c Release --no-build --no-restore
+
+      - name: Integration tests
+        # Only Linux non-container runners are expected to have the necessary capabilities for integration tests.
+        if: runner.os == 'Linux' && matrix.container == null
+        shell: bash
+        run: |
+          # Preserve the runner's PATH so dotnet is found under sudo.
+          # CAP_BPF + CAP_PERFMON are available to root, which satisfies
+          # the RequiresBpfAttribute skip guard.
+          # Only Linux non-container runners are expected to have
+          # the necessary capabilities for integration tests.
+          sudo env PATH="$PATH" CI="${CI:-}" GITHUB_ACTIONS="${GITHUB_ACTIONS:-}" \
+            dotnet test tests/KernelTrace.IntegrationTests \
+              -c Release --no-build --no-restore
 
       - name: Upload native library artifact
         uses: actions/upload-artifact@v7
@@ -115,6 +144,7 @@ jobs:
   build-nupkg:
     needs: [build]
     runs-on: ubuntu-latest
+    name: Build NuGet package
     if: always() && needs.build.result == 'success'
     steps:
       - uses: actions/checkout@v6
@@ -137,8 +167,66 @@ jobs:
         run: |
           dotnet pack -c Release -o nupkgs
 
+      - name: Validate NuGet packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          PASS=0; FAIL=0
+
+          for PKG in nupkgs/*.nupkg; do
+            NAME=$(basename "$PKG")
+
+            # 1. ZIP integrity
+            if ! unzip -t "$PKG" > /dev/null 2>&1; then
+              echo "::error::$NAME — invalid zip"
+              FAIL=$((FAIL+1)); continue
+            fi
+
+            # 2. .nuspec present
+            if ! unzip -l "$PKG" | grep -q "\.nuspec"; then
+              echo "::error::$NAME — missing .nuspec"
+              FAIL=$((FAIL+1)); continue
+            fi
+
+            # 3. For KernelTrace.*.nupkg check that native assets are bundled
+            #    for all four expected RIDs.
+            if [[ "$NAME" == KernelTrace.[0-9]* ]]; then
+              CONTENTS=$(unzip -l "$PKG")
+              for RID in linux-x64 linux-arm64 linux-musl-x64 linux-musl-arm64; do
+                if ! echo "$CONTENTS" | grep -q "runtimes/$RID/native/libkerneltrace.so"; then
+                  echo "::error::$NAME — missing runtimes/$RID/native/libkerneltrace.so"
+                  FAIL=$((FAIL+1))
+                fi
+              done
+            fi
+
+            echo "OK  $NAME"
+            PASS=$((PASS+1))
+          done
+
+          # 4. Restore test: create a throw-away project, add local source, restore.
+          TMPDIR=$(mktemp -d)
+          trap "rm -rf $TMPDIR" EXIT
+          dotnet new classlib -n PkgTest -o "$TMPDIR" --no-restore -f net10.0 -v q
+          PKG_VERSION=$(ls nupkgs/KernelTrace.*.nupkg | head -1 \
+            | sed 's/.*KernelTrace\.\(.*\)\.nupkg/\1/')
+          dotnet add "$TMPDIR/PkgTest.csproj" package KernelTrace \
+            --version "$PKG_VERSION" \
+            --source "$(pwd)/nupkgs" \
+            --no-restore
+          dotnet restore "$TMPDIR/PkgTest.csproj" \
+            --source "$(pwd)/nupkgs" \
+            -v q
+          echo "OK  restore test (KernelTrace $PKG_VERSION)"
+
+          echo ""
+          echo "Package validation: $PASS checked, $FAIL failed"
+          [[ $FAIL -eq 0 ]]
+
       - name: Upload NuGet package artifact
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
-          path: nupkgs/*.nupkg
+          path: |
+            nupkgs/*.nupkg
+            nupkgs/*.snupkg

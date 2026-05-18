@@ -22,9 +22,12 @@
     <Project Path="samples/FileIoMonitor/FileIoMonitor.csproj" />
     <Project Path="samples/MemoryProfiler/MemoryProfiler.csproj" />
     <Project Path="samples/BlockIoAnalyzer/BlockIoAnalyzer.csproj" />
+    <Project Path="samples/CoreRelocations/CoreRelocations.csproj" />
     <Project Path="samples/DotNetRuntime/DotNetRuntime.csproj" />
     <Project Path="samples/ContainerMonitor/ContainerMonitor.csproj" />
     <Project Path="samples/KernelInternals/KernelInternals.csproj" />
+    <Project Path="samples/StackSampler/StackSampler.csproj" />
+    <Project Path="samples/UsdtPythonTracer/UsdtPythonTracer.csproj" />
   </Folder>
 
   <!-- ── Benchmarks ────────────────────────────────────────────────────── -->

@@ -32,19 +32,71 @@ internal sealed class RequiresBpfAttribute : SkipAttribute
         _probeName = probeName;
     }
 
-    public override Task<bool> ShouldSkip(TestRegisteredContext context)
+    public override async Task<bool> ShouldSkip(TestRegisteredContext context)
     {
         if (!OperatingSystem.IsLinux())
         {
-            return Task.FromResult(true);
+            return true;
         }
 
         if (!IntegrationTestHelpers.HasBpfCapability())
         {
-            return Task.FromResult(true);
+            return true;
         }
 
-        bool probeFound = IntegrationTestHelpers.FindProbeFile(_probeName) is not null;
-        return Task.FromResult(!probeFound);
+        string? probePath = IntegrationTestHelpers.FindProbeFile(_probeName);
+        if (probePath is null)
+        {
+            return true;
+        }
+
+        // Attempt a trial load to catch kernel-incompatible probes before the
+        // test body runs.  Only skip for known "this kernel can't run this probe"
+        // error codes so that real bugs (struct mismatches, ENOMEM, etc.) still
+        // surface as failures.
+        //
+        //  -13  EACCES  kernel LSM / security policy blocks this probe type
+        //               (e.g. block_io on some Azure x64 kernels)
+        //  -22  EINVAL  BPF program invalid for this architecture or kernel
+        //               version (e.g. memory_profiler / uprobe on arm64)
+        try
+        {
+            var opts = new SessionOptions { ProbePath = probePath, ValidateStructLayouts = false };
+            await using var session = await KernelTraceSession.CreateAsync(opts);
+            return false; // probe loaded — let the test run
+        }
+        catch (NativeInteropException ex) when (ex.NativeErrorCode is -13 or -22)
+        {
+            // Print the exact error so it is visible in CI logs even though the
+            // test itself is marked skipped rather than failed.
+            Console.WriteLine(
+                $"[RequiresBpf] Skipping '{_probeName}' probe — kernel incompatibility: {ex.Message}");
+            return true;
+        }
+        // Any other NativeInteropException (ENOMEM, unexpected verifier error,
+        // …) is NOT caught here and will propagate, causing the test to fail
+        // visibly rather than silently disappear as a skip.
+    }
+}
+
+/// <summary>
+/// TUnit skip condition: skips a test when running inside a CI environment
+/// (i.e. the <c>CI</c> environment variable is set to <c>true</c>).
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+internal sealed class SkipInCiAttribute : SkipAttribute
+{
+    public SkipInCiAttribute(string reason)
+        : base(reason)
+    {
+    }
+
+    public override Task<bool> ShouldSkip(TestRegisteredContext context)
+    {
+        bool inCi = string.Equals(
+            Environment.GetEnvironmentVariable("CI"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+        return Task.FromResult(inCi);
     }
 }

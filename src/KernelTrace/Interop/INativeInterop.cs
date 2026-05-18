@@ -13,10 +13,19 @@ internal interface INativeInterop
     /// Loads the compiled eBPF object at <paramref name="objPath"/> into the
     /// kernel and returns an opaque session handle.
     /// </summary>
+    /// <param name="objPath">Absolute path to the <c>.bpf.o</c> file.</param>
+    /// <param name="btfCustomPath">
+    /// Optional path to a custom BTF file for CO-RE on non-standard kernels.
+    /// </param>
+    /// <param name="debugOutput">
+    /// When <see langword="true"/>, libbpf debug messages are written to stderr
+    /// during load.
+    /// </param>
     /// <exception cref="Exceptions.NativeInteropException">
     /// Thrown if the object cannot be loaded (e.g., bad bytecode, missing CAP_BPF).
     /// </exception>
-    KernelProbeHandle LoadSession(string objPath);
+    KernelProbeHandle LoadSession(string objPath,
+        string? btfCustomPath = null, bool debugOutput = false);
 
     // ── Probe attachment ─────────────────────────────────────────────────────
 
@@ -27,15 +36,22 @@ internal interface INativeInterop
     AttachmentHandle AttachKprobe(KernelProbeHandle session, string functionName, bool returnProbe = false);
 
     /// <summary>Attaches a uprobe to a user-space binary at the given offset.</summary>
-    /// <param name="session">The loaded eBPF session handle.</param>
-    /// <param name="binaryPath">Absolute path to the target binary.</param>
-    /// <param name="offset">Byte offset of the function entry within the binary.</param>
-    /// <param name="returnProbe">When <see langword="true"/>, attaches to the function return instead.</param>
-    /// <param name="programSection">
-    /// Optional BPF program section name (e.g. <c>"uprobe/dotnet_gc_start"</c>).
-    /// When <see langword="null"/>, the first uprobe program in the object is used.
-    /// </param>
     AttachmentHandle AttachUprobe(KernelProbeHandle session, string binaryPath, ulong offset, bool returnProbe = false, string? programSection = null);
+
+    /// <summary>
+    /// Attaches a USDT (Userland Statically Defined Trace) probe.
+    /// </summary>
+    /// <param name="session">The loaded eBPF session handle.</param>
+    /// <param name="pid">Process ID to trace, or -1 for all processes.</param>
+    /// <param name="binaryPath">Absolute path to the binary containing the USDT probe.</param>
+    /// <param name="provider">USDT provider name (e.g. <c>"python"</c>).</param>
+    /// <param name="name">USDT probe name (e.g. <c>"function__entry"</c>).</param>
+    /// <param name="programSection">
+    /// BPF program function name, or <see langword="null"/> to use the first
+    /// <c>usdt</c> program in the object.
+    /// </param>
+    AttachmentHandle AttachUsdt(KernelProbeHandle session, int pid, string binaryPath,
+        string provider, string name, string? programSection = null);
 
     /// <summary>Detaches and frees an attachment.</summary>
     void Detach(AttachmentHandle attachment);
@@ -61,7 +77,7 @@ internal interface INativeInterop
 
     /// <summary>
     /// Waits for data on the epoll fd.  Returns the number of ready fds
-    /// (0 on timeout, -1 on error).
+    /// (0 on timeout, negative on error).
     /// </summary>
     int Poll(int epollFd, int timeoutMs);
 
@@ -74,6 +90,41 @@ internal interface INativeInterop
     /// Returns the BTF-reported byte size of a named C struct, or -1 if not found.
     /// </summary>
     int GetBtfStructSize(KernelProbeHandle session, string structName);
+
+    /// <summary>
+    /// Returns <see langword="true"/> when vmlinux BTF is available on the running
+    /// kernel (<c>/sys/kernel/btf/vmlinux</c> is present and readable).
+    /// </summary>
+    bool IsBtfAvailable();
+
+    // ── BPF maps ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns the file descriptor of any named BPF map in the session.
+    /// Works for all map types (HASH, ARRAY, STACK_TRACE, etc.).
+    /// </summary>
+    int MapGetFd(KernelProbeHandle session, string mapName);
+
+    /// <summary>Queries the kernel for map metadata.</summary>
+    NativeMapInfo MapGetInfo(int mapFd);
+
+    /// <summary>
+    /// Looks up a single entry.  Returns 0 on success, -2 (ENOENT) when the key
+    /// is not present.
+    /// </summary>
+    int MapLookup(int mapFd, nint keyPtr, nint valuePtr);
+
+    /// <summary>Inserts or updates an entry. Returns 0 on success.</summary>
+    int MapUpdate(int mapFd, nint keyPtr, nint valuePtr, ulong flags);
+
+    /// <summary>Deletes an entry. Returns 0 on success, -2 (ENOENT) if missing.</summary>
+    int MapDelete(int mapFd, nint keyPtr);
+
+    /// <summary>
+    /// Iterates keys in arbitrary order.  Pass <see cref="nint.Zero"/> for the
+    /// first key.  Returns 0 on success, -2 (ENOENT) when iteration is complete.
+    /// </summary>
+    int MapGetNextKey(int mapFd, nint currentKeyPtr, nint nextKeyPtr);
 
     // ── Per-process filter ────────────────────────────────────────────────────
 

@@ -14,6 +14,22 @@ within your own process, with zero sidecars or agents.
 
 ---
 
+## Why KernelTrace?
+
+Kernel observability for .NET has historically meant spawning external processes (`bpftrace`, `perf`, `BCC`) and parsing their text output, or writing C/Python BPF glue code. KernelTrace removes the indirection entirely.
+
+| Without KernelTrace | With KernelTrace |
+|---|---|
+| Separate agent process or sidecar | Runs **inside your process** — no IPC overhead |
+| Text output parsing, string allocations | **Typed C# structs**, zero-copy `ProcessAsync<T>` |
+| Manual P/Invoke struct layout | **Source generator** maps C↔C# at build time |
+| Root or broad `CAP_SYS_ADMIN` | Just `CAP_BPF` + `CAP_PERFMON` on your binary |
+| Custom threading and polling glue | Lock-free ring buffer with `AboveNormal` polling thread |
+| No integration with .NET tooling | `IAsyncEnumerable<T>`, `CancellationToken`, `IHostedService` |
+| No metrics story | Built-in `System.Diagnostics.Metrics`, Prometheus, OpenTelemetry |
+
+---
+
 ## Features
 
 | Capability | Details |
@@ -21,12 +37,20 @@ within your own process, with zero sidecars or agents.
 | **Tracepoints** | Stable kernel ABI — `tp/sched/sched_switch`, `tp/syscalls/sys_enter_*`, etc. |
 | **kprobes / kretprobes** | Arbitrary kernel function entry and return |
 | **uprobes / uretprobes** | User-space function tracing (libc, JVM, .NET runtime, …) |
+| **USDT probes** | Attach to DTrace/SystemTap probe points in Python, Node.js, and any SDT-annotated binary |
 | **Lock-free ring buffer** | mmap'd `BPF_MAP_TYPE_RINGBUF` consumer — zero syscalls per event |
+| **BPF map access** | Read/write any BPF map (`BpfMap<TKey,TValue>`) from .NET — hash, array, LRU, and more |
+| **Stack traces** | `StackTraceMap` + `KernelSymbolResolver` for kernel and user-space frame symbolization |
+| **In-kernel aggregation** | Use `BpfMap` to read pre-aggregated counters/histograms kept in kernel space |
+| **CO-RE support** | Supply a custom BTF archive (`BtfCustomPath`) for kernels without built-in BTF |
 | **Source generator** | Auto-generates C# structs from `.bpf.c` definitions at build time |
 | **BTF validation** | Struct size verified against kernel BTF on session start |
 | **IAsyncEnumerable** | Idiomatic `await foreach` event streaming |
 | **Zero-copy callbacks** | `ProcessAsync<T>` — callback receives a `ref readonly T` from mmap memory |
+| **Raw byte streaming** | `ReadRawAsync()` — consume un-typed events for dynamic/multi-schema probes |
+| **ILogger integration** | `.WithLogging()` and `LogEventsAsync()` for structured event logging |
 | **Hot attach/detach** | Add and remove probes while the session is running |
+| **Current-process filter** | `CurrentProcessOnly=true` drops foreign PIDs in-kernel |
 | **Metrics** | `System.Diagnostics.Metrics`, Prometheus, and OpenTelemetry out of the box |
 | **ASP.NET Core hosting** | `AddKernelTrace()` + `IHostedService` integration |
 | **AOT-safe** | `LibraryImport` source-generated P/Invoke throughout |
@@ -63,23 +87,41 @@ public unsafe partial struct SocketConnectEvent
 {
     public ulong  TimestampNs;
     public uint   Pid;
+    public uint   Tgid;
+    public uint   Uid;
+    public uint   SrcIp;
     public uint   DstIp;
+    public ushort SrcPort;
     public ushort DstPort;
     public fixed byte Comm[16];
+    public byte   Family;
 }
 
-// Create a session
+// Ctrl+C handling
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+// Create a session — both enter and exit tracepoints are required:
+// the BPF program records the entry timestamp and emits the event on exit.
 await using var session = await KernelTraceSession.CreateAsync(new SessionOptions
 {
     ProbePath = "/usr/share/kerneltrace/probes/network_monitor.bpf.o",
-    Probes    = [new TracepointSpec { Category = "syscalls", Name = "sys_enter_connect" }],
+    Probes    =
+    [
+        new TracepointSpec { Category = "syscalls", Name = "sys_enter_connect" },
+        new TracepointSpec { Category = "syscalls", Name = "sys_exit_connect"  },
+    ],
 });
 
-// Stream events
-await foreach (var ev in session.ReadAsync<SocketConnectEvent>())
+// Stream events — cancel on Ctrl+C
+try
 {
-    Console.WriteLine($"PID={ev.Pid}  dst={ev.DstIp}:{ev.DstPort}");
+    await foreach (var ev in session.ReadAsync<SocketConnectEvent>(cts.Token))
+    {
+        Console.WriteLine($"PID={ev.Tgid}  dst={ev.DstIp}:{ev.DstPort}  comm={new string((sbyte*)ev.Comm)}");
+    }
 }
+catch (OperationCanceledException) { }
 ```
 
 ---
@@ -168,12 +210,22 @@ counters — all without touching the thread pool.
 
 ## Samples
 
-| Sample | Description |
-|---|---|
-| [`samples/NetworkMonitor`](samples/NetworkMonitor) | Live TCP connection table with security alerts |
-| [`samples/SchedulerProfiler`](samples/SchedulerProfiler) | Off-CPU profiler using `sched_switch` |
-| [`samples/SecurityGuard`](samples/SecurityGuard) | execve auditing with suspicious binary detection |
-| [`samples/PrometheusExporter`](samples/PrometheusExporter) | ASP.NET Core app exporting KernelTrace metrics |
+| Sample | Probe file | Description |
+|---|---|---|
+| [`samples/NetworkMonitor`](samples/NetworkMonitor) | `network_monitor.bpf.o` | Live outbound TCP/UDP connection table |
+| [`samples/SchedulerProfiler`](samples/SchedulerProfiler) | `scheduler_profiler.bpf.o` | Off-CPU profiler using `sched_switch` |
+| [`samples/SecurityGuard`](samples/SecurityGuard) | `security_guard.bpf.o` | `execve` auditing with suspicious-binary detection |
+| [`samples/FileIoMonitor`](samples/FileIoMonitor) | `fs_io.bpf.o` | Per-syscall file I/O latency with hot-file ranking |
+| [`samples/BlockIoAnalyzer`](samples/BlockIoAnalyzer) | `block_io.bpf.o` | Per-device block I/O latency dashboard |
+| [`samples/MemoryProfiler`](samples/MemoryProfiler) | `memory_profiler.bpf.o` | Kernel slab + page-allocator + page-fault tracking |
+| [`samples/KernelInternals`](samples/KernelInternals) | `kernel_internals.bpf.o` | IRQ latency, lock contention, CPU P/C-state dashboard |
+| [`samples/ContainerMonitor`](samples/ContainerMonitor) | `container_monitor.bpf.o` | Container-attributed events via cgroup v2 |
+| [`samples/DotNetRuntime`](samples/DotNetRuntime) | `dotnet_runtime.bpf.o` | .NET CLR uprobe tracing — GC, exceptions, JIT |
+| [`samples/StackSampler`](samples/StackSampler) | `stack_sampler.bpf.o` | Kernel + user-space stack traces with `/proc/kallsyms` symbolization |
+| [`samples/UsdtPythonTracer`](samples/UsdtPythonTracer) | `usdt_python.bpf.o` | Python 3 USDT `function__entry` tracer |
+| [`samples/CoreRelocations`](samples/CoreRelocations) | `network_monitor.bpf.o` | CO-RE demo: custom BTF path, `IsBtfAvailable()`, debug output |
+
+→ [Samples documentation](docs/samples.md)
 
 ---
 
@@ -182,25 +234,67 @@ counters — all without touching the thread pool.
 - [Getting Started](docs/getting-started.md)
 - [Architecture](docs/architecture.md)
 - [Probe Reference](docs/probes.md)
+- [Samples](docs/samples.md)
 - [API Reference](docs/api-reference.md)
 
 ---
 
-## Building the native shim
+## Building the native library
+
+### Using the helper scripts (recommended)
+
+Two scripts in `native/scripts/` cover the full local build workflow:
+
+| Script | Purpose |
+|---|---|
+| `gen-vmlinux.sh` | Generates `native/probes/vmlinux.h` from the running kernel's BTF via `bpftool` |
+| `build-and-install.sh` | Builds `libkerneltrace.so` + all `.bpf.o` probes and copies them into `runtimes/<RID>/native/` |
+
+```bash
+# 1. Generate vmlinux.h — required once per kernel version (file is gitignored)
+bash native/scripts/gen-vmlinux.sh
+
+# 2. Build libkerneltrace.so + *.bpf.o and install into runtimes/<RID>/native/
+bash native/scripts/build-and-install.sh
+```
+
+`build-and-install.sh` auto-detects the host architecture **and** libc variant:
+
+| Architecture | glibc | musl (Alpine, Void Linux, …) |
+|---|---|---|
+| x86_64 | `linux-x64` | `linux-musl-x64` |
+| aarch64 | `linux-arm64` | `linux-musl-arm64` |
+| armv7l | `linux-arm` | `linux-musl-arm` |
+
+The output lands in `runtimes/<RID>/native/` — exactly where the .NET SDK
+native-asset resolver and `dotnet pack` expect it, so no extra configuration
+is needed.
+
+→ Full walkthrough in [docs/getting-started.md — Building from source](docs/getting-started.md#building-the-native-library-from-source)
+
+### Manual cmake build
+
+For fine-grained control or to skip probe compilation:
 
 ```bash
 cd native
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(nproc)
-sudo cmake --install build
+cmake -B build -DCMAKE_BUILD_TYPE=Release   # KERNELTRACE_BUILD_PROBES=ON by default
+cmake --build build -j$(nproc)              # builds libkerneltrace.so + all .bpf.o probes
+sudo cmake --install build                   # installs into /usr/local
 ```
 
-To also compile eBPF probe objects (requires clang and bpftool):
+To skip eBPF probe compilation (no clang required):
 
 ```bash
-cmake -B build -DKERNELTRACE_BUILD_PROBES=ON
-cmake --build build --target ebpf_probes
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DKERNELTRACE_BUILD_PROBES=OFF
+cmake --build build -j$(nproc)
 ```
+
+The build system detects the host architecture (`CMAKE_SYSTEM_PROCESSOR`) and
+sets the appropriate BPF target-arch define and multiarch include path
+automatically.  arm64, armv7, riscv64, s390x, and x86_64 are supported.  On
+musl-based systems (Alpine) the multiarch subdirectory is absent and the build
+falls back to `/usr/include` seamlessly.
 
 ---
 

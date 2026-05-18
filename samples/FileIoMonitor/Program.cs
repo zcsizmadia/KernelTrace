@@ -70,6 +70,8 @@ var reportTask = Task.Run(async () =>
     }
 }, cts.Token);
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     // The source generator emits [KernelEvent] structs from the eBPF C structs.
@@ -112,8 +114,11 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         Console.WriteLine($"{time,-12} {ev.Pid,-8} {comm,-16} {type,-6} {latUs,-12} {ev.Bytes,-10} fd={ev.Fd}");
     }
 }
+}
+catch (OperationCanceledException) { }
 
-await reportTask.ConfigureAwait(false);
+try { await reportTask.ConfigureAwait(false); }
+catch (OperationCanceledException) { }
 
 // ── Lightweight struct overlays (until source-generator is wired up) ─────────
 

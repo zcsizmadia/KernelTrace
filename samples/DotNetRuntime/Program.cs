@@ -123,6 +123,8 @@ Console.WriteLine(new string('─', 80));
 const int GcMin  = 8 + 8 + 4 + 4 + 4 + 1 + 16;
 const int RwMin  = 8 + 8 + 4 + 4 + 16; // exc / method share same layout
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     string time = DateTime.Now.ToString("HH:mm:ss.fff");
@@ -153,6 +155,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         Console.WriteLine($"{time,-12} {pid,-8} {comm,-16} CLR event @ 0x{ptr:x}");
     }
 }
+}
+catch (OperationCanceledException) { }
 
 return 0;
 
@@ -187,10 +191,38 @@ static ulong ResolveSymbol(string library, string symbol)
 {
     try
     {
-        // nm -D <library> | grep " T <symbol>"
+        // First try the main library's dynamic symbol table.  On release builds
+        // this is usually stripped, so the fallback below matters more.
+        ulong addr = RunNm(library, "-D", symbol);
+        if (addr != 0)
+        {
+            return addr;
+        }
+
+        // Fall back to the .dbg sidecar installed by the debug-symbols package
+        // (e.g. `apt install dotnet-runtime-dbg-10.0` on Ubuntu/Debian).
+        // The sidecar retains the full .symtab — use nm without -D.
+        string dbg = library + ".dbg";
+        if (File.Exists(dbg))
+        {
+            addr = RunNm(dbg, "", symbol);
+            if (addr != 0)
+            {
+                return addr;
+            }
+        }
+    }
+    catch { /* symbol not available */ }
+    return 0;
+}
+
+static ulong RunNm(string file, string nmFlags, string symbol)
+{
+    try
+    {
         using var p = Process.Start(new ProcessStartInfo("nm")
         {
-            Arguments              = $"-D \"{library}\"",
+            Arguments              = $"{nmFlags} \"{file}\"",
             RedirectStandardOutput = true,
             UseShellExecute        = false,
         });

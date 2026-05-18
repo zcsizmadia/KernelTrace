@@ -57,13 +57,42 @@ if(KERNELTRACE_BUILD_PROBES)
     endif()
 
     set(BPF_ARCH "bpf")
+
+    # ── Determine host arch for BPF target-arch define and multiarch path ─────
+    # Maps CMAKE_SYSTEM_PROCESSOR → BPF __TARGET_ARCH_<x> define suffix.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+        set(BPF_TARGET_ARCH "arm64")
+        set(MULTIARCH_TUPLE "aarch64-linux-gnu")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "armv7|arm")
+        set(BPF_TARGET_ARCH "arm")
+        set(MULTIARCH_TUPLE "arm-linux-gnueabihf")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64")
+        set(BPF_TARGET_ARCH "riscv")
+        set(MULTIARCH_TUPLE "riscv64-linux-gnu")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "s390x")
+        set(BPF_TARGET_ARCH "s390")
+        set(MULTIARCH_TUPLE "s390x-linux-gnu")
+    else()
+        # Default: x86_64
+        set(BPF_TARGET_ARCH "x86")
+        set(MULTIARCH_TUPLE "x86_64-linux-gnu")
+    endif()
+
+    # On musl-based systems (Alpine, etc.) there is no multiarch subdirectory;
+    # /usr/include already contains the arch-specific headers directly.
+    set(MULTIARCH_INCLUDE "/usr/include/${MULTIARCH_TUPLE}")
+    if(NOT IS_DIRECTORY "${MULTIARCH_INCLUDE}")
+        set(MULTIARCH_INCLUDE "/usr/include")
+    endif()
+
     set(BPF_CFLAGS
         -O2
         -g
         -target bpf
-        -D__TARGET_ARCH_x86
+        -D__TARGET_ARCH_${BPF_TARGET_ARCH}
         -I${CMAKE_SOURCE_DIR}/probes
         -I/usr/include/bpf
+        -I${MULTIARCH_INCLUDE}
     )
 
     set(PROBE_SOURCES
@@ -76,6 +105,8 @@ if(KERNELTRACE_BUILD_PROBES)
         probes/dotnet_runtime.bpf.c
         probes/container_monitor.bpf.c
         probes/kernel_internals.bpf.c
+        probes/stack_sampler.bpf.c
+        probes/usdt_python.bpf.c
     )
 
     set(PROBE_OBJECTS)

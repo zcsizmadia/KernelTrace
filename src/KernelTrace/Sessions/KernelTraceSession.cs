@@ -1,6 +1,7 @@
 using KernelTrace.Diagnostics;
 using KernelTrace.Exceptions;
 using KernelTrace.Interop;
+using KernelTrace.Maps;
 using KernelTrace.Probes;
 using KernelTrace.RingBuffer;
 using Microsoft.Extensions.Logging;
@@ -133,6 +134,13 @@ public sealed class KernelTraceSession : IAsyncDisposable
         CreateAsync(options, LibBpfInterop.Instance, logger, cancellationToken);
 
     /// <summary>
+    /// Returns <see langword="true"/> when the running kernel exposes BTF metadata
+    /// via <c>/sys/kernel/btf/vmlinux</c>, which is required for CO-RE relocation.
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    public static bool IsBtfAvailable() => LibBpfInterop.Instance.IsBtfAvailable();
+
+    /// <summary>
     /// Testability overload — accepts a custom <see cref="INativeInterop"/>.
     /// </summary>
     [SupportedOSPlatform("linux")]
@@ -169,7 +177,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             // 1. Load the eBPF object into the kernel.
-            var sessionHandle = interop.LoadSession(options.ProbePath);
+            var sessionHandle = interop.LoadSession(options.ProbePath, options.BtfCustomPath, options.DebugOutput);
 
             // 2. Attach probes.
             var attachments = new List<AttachmentHandle>(options.Probes.Count);
@@ -184,6 +192,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
                         TracepointSpec tp => interop.AttachTracepoint(sessionHandle, tp.Category, tp.Name),
                         KprobeSpec kp    => interop.AttachKprobe(sessionHandle, kp.FunctionName, kp.ReturnProbe),
                         UprobeSpec up    => interop.AttachUprobe(sessionHandle, up.BinaryPath, up.Offset, up.ReturnProbe, up.ProgramSection),
+                        UsdtSpec us      => interop.AttachUsdt(sessionHandle, us.Pid, us.BinaryPath, us.Provider, us.Name, us.ProgramSection),
                         _ => throw new NotSupportedException($"Unsupported probe type: {probe.GetType().Name}"),
                     };
 
@@ -264,6 +273,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             T value;
             using (record)
             {
@@ -303,6 +313,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReadOnlyMemory<byte> copy;
             using (record)
             {
@@ -335,6 +346,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
             .ReadAllAsync(cancellationToken)
             .ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using (record)
             {
                 if (record.Length < Unsafe.SizeOf<T>())
@@ -372,6 +384,7 @@ public sealed class KernelTraceSession : IAsyncDisposable
                 TracepointSpec tp => _interop.AttachTracepoint(_sessionHandle, tp.Category, tp.Name),
                 KprobeSpec kp    => _interop.AttachKprobe(_sessionHandle, kp.FunctionName, kp.ReturnProbe),
                 UprobeSpec up    => _interop.AttachUprobe(_sessionHandle, up.BinaryPath, up.Offset, up.ReturnProbe),
+                UsdtSpec us      => _interop.AttachUsdt(_sessionHandle, us.Pid, us.BinaryPath, us.Provider, us.Name, us.ProgramSection),
                 _ => throw new NotSupportedException($"Unsupported probe type: {probe.GetType().Name}"),
             };
         }, cancellationToken).ConfigureAwait(false);
@@ -394,11 +407,11 @@ public sealed class KernelTraceSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(token);
         return Task.Run(() =>
         {
-            _interop.Detach(token.Handle);
             lock (_validatedStructsLock)
             {
                 _attachments.Remove(token.Handle);
             }
+            token.Handle.Dispose();
         }, cancellationToken);
     }
 
@@ -514,6 +527,55 @@ public sealed class KernelTraceSession : IAsyncDisposable
 
         _logger.LogDebug(
             "BTF validation OK: {Type} = {Size} bytes", typeof(T).Name, csSize);
+    }
+
+    // ── BPF map access ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns a typed accessor for a BPF map declared in the loaded eBPF object.
+    /// </summary>
+    /// <typeparam name="TKey">
+    /// Unmanaged struct matching the BPF map's key layout.
+    /// </typeparam>
+    /// <typeparam name="TValue">
+    /// Unmanaged struct matching the BPF map's value layout.
+    /// </typeparam>
+    /// <param name="mapName">
+    /// The name of the BPF map as declared with <c>SEC(".maps")</c> in the
+    /// eBPF source (e.g. <c>"counts"</c>, <c>"events"</c>).
+    /// </param>
+    /// <returns>
+    /// A <see cref="BpfMap{TKey,TValue}"/> scoped to this session.
+    /// Do not use the returned object after the session is disposed.
+    /// </returns>
+    /// <exception cref="Exceptions.NativeInteropException">
+    /// When the map name is not found in the loaded object.
+    /// </exception>
+    [SupportedOSPlatform("linux")]
+    public BpfMap<TKey, TValue> GetMap<TKey, TValue>(string mapName)
+        where TKey   : unmanaged
+        where TValue : unmanaged
+    {
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
+        int fd = _interop.MapGetFd(_sessionHandle, mapName);
+        return new BpfMap<TKey, TValue>(_interop, fd, mapName);
+    }
+
+    /// <summary>
+    /// Returns an accessor for a <c>BPF_MAP_TYPE_STACK_TRACE</c> map.
+    /// </summary>
+    /// <param name="mapName">Name of the stack-trace map (default: <c>"stacks"</c>).</param>
+    [SupportedOSPlatform("linux")]
+    public StackTraceMap GetStackTraceMap(string mapName = "stacks")
+    {
+        ObjectDisposedException.ThrowIf(_disposed != 0, this);
+        int fd = _interop.MapGetFd(_sessionHandle, mapName);
+        // Use value size to infer max depth (each slot is 8 bytes).
+        var info = _interop.MapGetInfo(fd);
+        int maxDepth = (int)(info.ValueSize / 8);
+        if (maxDepth <= 0) maxDepth = 127;
+        return new StackTraceMap(_interop, fd, maxDepth);
     }
 
     // ── IAsyncDisposable ──────────────────────────────────────────────────────

@@ -63,6 +63,8 @@ var reportTask = Task.Run(async () =>
 //   ts(8) latency(8) sector(8) dev(4) nr_sector(4) bytes(4) pid(4) rwbs(8) comm(16) is_write(1)
 const int EventSize = 8 + 8 + 8 + 4 + 4 + 4 + 4 + 8 + 16 + 1;
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     if (rawEvent.Length < EventSize)
@@ -83,5 +85,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         ? (cur.RC, cur.RS, cur.WC + 1, cur.WS + (long)latency)
         : (cur.RC + 1, cur.RS + (long)latency, cur.WC, cur.WS);
 }
+}
+catch (OperationCanceledException) { }
 
-await reportTask.ConfigureAwait(false);
+try { await reportTask.ConfigureAwait(false); }
+catch (OperationCanceledException) { }

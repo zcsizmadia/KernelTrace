@@ -16,13 +16,25 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 NATIVE_DIR="${REPO_ROOT}/native"
 BUILD_DIR="${NATIVE_DIR}/build"
 
+# ── Detect musl vs glibc → affects the .NET RID ──────────────────────────────
+
+LIBC_SUFFIX=""
+# /etc/alpine-release is the most reliable indicator for the Alpine Linux
+# container used in CI.  Fall back to ldd --version for non-Alpine musl
+# distros (Void Linux, OpenWRT, etc.).
+if [[ -f /etc/alpine-release ]]; then
+    LIBC_SUFFIX="-musl"
+elif ldd --version 2>&1 | grep -qi musl; then
+    LIBC_SUFFIX="-musl"
+fi
+
 # ── Detect architecture → .NET RID ───────────────────────────────────────────
 
 ARCH="$(uname -m)"
 case "${ARCH}" in
-    x86_64)  RID="linux-x64"   ;;
-    aarch64) RID="linux-arm64" ;;
-    armv7l)  RID="linux-arm"   ;;
+    x86_64)  RID="linux${LIBC_SUFFIX}-x64"   ;;
+    aarch64) RID="linux${LIBC_SUFFIX}-arm64" ;;
+    armv7l)  RID="linux${LIBC_SUFFIX}-arm"   ;;
     *)
         echo "ERROR: Unsupported architecture '${ARCH}'." >&2
         exit 1
@@ -32,7 +44,8 @@ esac
 DEST_DIR="${REPO_ROOT}/runtimes/${RID}/native"
 
 echo "KernelTrace — native build + install"
-echo "  Architecture : ${ARCH}  →  RID: ${RID}"
+LIBC_DISPLAY="${LIBC_SUFFIX:+musl}"; LIBC_DISPLAY="${LIBC_DISPLAY:-glibc}"
+echo "  Architecture : ${ARCH} (${LIBC_DISPLAY})  →  RID: ${RID}"
 echo "  Build dir    : ${BUILD_DIR}"
 echo "  Install dir  : ${DEST_DIR}"
 echo
@@ -67,14 +80,14 @@ if [[ ! -f "${SO_SRC}" ]]; then
     echo "ERROR: Expected ${SO_SRC} — did the build succeed?" >&2
     exit 1
 fi
-cp --preserve=timestamps "${SO_SRC}" "${DEST_DIR}/libkerneltrace.so"
+cp -p "${SO_SRC}" "${DEST_DIR}/libkerneltrace.so"
 echo "  ✔  libkerneltrace.so"
 
 # eBPF probe objects compiled by clang
 PROBE_COUNT=0
 for OBJ in "${BUILD_DIR}"/*.bpf.o; do
     [[ -f "${OBJ}" ]] || continue
-    cp --preserve=timestamps "${OBJ}" "${DEST_DIR}/"
+    cp -p "${OBJ}" "${DEST_DIR}/"
     echo "  ✔  $(basename "${OBJ}")"
     PROBE_COUNT=$(( PROBE_COUNT + 1 ))
 done

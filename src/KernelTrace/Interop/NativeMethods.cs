@@ -104,6 +104,45 @@ internal static partial class NativeMethods
     /// </summary>
     [LibraryImport(LibName, EntryPoint = "kt_session_set_tgid_filter")]
     internal static partial void SetTgidFilter(nint session, uint tgid, out NativeError error);
+
+    // ── CO-RE / extended session loading ─────────────────────────────────────
+
+    [LibraryImport(LibName, EntryPoint = "kt_session_load_ext",
+        StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint SessionLoadExt(string objPath, in NativeSessionOpts opts, out NativeError error);
+
+    [LibraryImport(LibName, EntryPoint = "kt_btf_available")]
+    internal static partial int BtfAvailable();
+
+    // ── BPF map operations ────────────────────────────────────────────────────
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_get_fd",
+        StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial int MapGetFd(nint session, string mapName, out NativeError error);
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_get_info")]
+    internal static partial NativeError MapGetInfo(int mapFd, out NativeMapInfo info);
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_lookup")]
+    internal static unsafe partial int MapLookup(int mapFd, void* key, void* value);
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_update")]
+    internal static unsafe partial int MapUpdate(int mapFd, void* key, void* value, ulong flags);
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_delete")]
+    internal static unsafe partial int MapDelete(int mapFd, void* key);
+
+    [LibraryImport(LibName, EntryPoint = "kt_map_get_next_key")]
+    internal static unsafe partial int MapGetNextKey(int mapFd, void* key, void* nextKey);
+
+    // ── USDT probes ───────────────────────────────────────────────────────────
+
+    [LibraryImport(LibName, EntryPoint = "kt_attach_usdt",
+        StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint AttachUsdt(
+        nint session, int pid, string binaryPath,
+        string provider, string name, string? progSection,
+        out NativeError error);
 }
 
 // ── Error descriptor struct ──────────────────────────────────────────────────
@@ -145,4 +184,37 @@ internal unsafe struct NativeError
 
     /// <inheritdoc/>
     public override readonly string ToString() => IsError ? $"[{Code}] {Message}" : "OK";
+}
+
+// ── Map info struct ──────────────────────────────────────────────────────────
+
+/// <summary>
+/// Blittable map metadata matching the native <c>kt_map_info_t</c>.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeMapInfo
+{
+    public uint Type;
+    public uint KeySize;
+    public uint ValueSize;
+    public uint MaxEntries;
+}
+
+// ── Extended session options ─────────────────────────────────────────────────
+
+/// <summary>
+/// Blittable options for <c>kt_session_load_ext</c>, matching <c>kt_session_opts_t</c>.
+/// Pointers are valid only for the duration of the native call.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeSessionOpts
+{
+    /// <summary>
+    /// Pointer to a null-terminated UTF-8 path for a custom BTF file,
+    /// or <see cref="nint.Zero"/> for the system vmlinux BTF.
+    /// </summary>
+    public nint BtfCustomPathPtr;
+
+    /// <summary>Non-zero to enable libbpf debug output during load.</summary>
+    public int DebugOutput;
 }

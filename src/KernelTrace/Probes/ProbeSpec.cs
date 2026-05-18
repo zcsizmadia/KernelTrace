@@ -7,6 +7,7 @@ namespace KernelTrace.Probes;
 ///   <item><see cref="TracepointSpec"/> — kernel tracepoints</item>
 ///   <item><see cref="KprobeSpec"/> — kprobes on kernel functions</item>
 ///   <item><see cref="UprobeSpec"/> — uprobes on user-space functions</item>
+///   <item><see cref="UsdtSpec"/> — USDT (Userland Statically Defined Trace) probes</item>
 /// </list>
 /// </summary>
 public abstract class ProbeSpec
@@ -107,4 +108,52 @@ public sealed class UprobeSpec : ProbeSpec
     /// <inheritdoc/>
     public override string Describe() =>
         Label ?? $"{(ReturnProbe ? "uretprobe" : "uprobe")}:{System.IO.Path.GetFileName(BinaryPath)}+0x{Offset:x}";
+}
+
+/// <summary>
+/// Attaches a BPF program to a USDT (Userland Statically Defined Trace) probe
+/// embedded in a user-space binary.
+/// </summary>
+/// <remarks>
+/// Requires a kernel and libbpf that support USDT (libbpf >= 1.0).
+/// The BPF program in the loaded <c>.bpf.o</c> must use a section name starting
+/// with <c>usdt</c> (e.g. <c>SEC("usdt/python:function__entry")</c>).
+/// </remarks>
+/// <example>
+/// <code>
+/// new UsdtSpec
+/// {
+///     BinaryPath = "/usr/bin/python3",
+///     Provider   = "python",
+///     Name       = "function__entry",
+///     Pid        = -1,   // trace all python processes
+/// }
+/// </code>
+/// </example>
+public sealed class UsdtSpec : ProbeSpec
+{
+    /// <summary>Absolute path to the ELF binary that contains the USDT probe.</summary>
+    public required string BinaryPath { get; init; }
+
+    /// <summary>USDT provider name (e.g. <c>"python"</c>).</summary>
+    public required string Provider { get; init; }
+
+    /// <summary>USDT probe name (e.g. <c>"function__entry"</c>).</summary>
+    public required string Name { get; init; }
+
+    /// <summary>
+    /// Optional BPF program function name to use for this attachment.
+    /// When <see langword="null"/>, the first <c>usdt</c>-prefixed program in
+    /// the loaded object is used.
+    /// </summary>
+    public string? ProgramSection { get; init; }
+
+    /// <summary>
+    /// Process ID to trace, or <c>-1</c> (the default) to trace all processes.
+    /// </summary>
+    public int Pid { get; init; } = -1;
+
+    /// <inheritdoc/>
+    public override string Describe() =>
+        Label ?? $"usdt:{System.IO.Path.GetFileName(BinaryPath)}:{Provider}:{Name}";
 }

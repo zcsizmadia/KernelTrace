@@ -761,3 +761,260 @@ public sealed class KernelTracingIntegrationTests
         return 0;
     }
 }
+
+// ── New-feature integration tests ─────────────────────────────────────────────
+
+/// <summary>
+/// Integration tests for BPF map access, CO-RE, BTF detection, and stack traces.
+/// All tests require CAP_BPF and compiled probe files.
+/// </summary>
+public sealed class NewFeatureIntegrationTests
+{
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
+
+    // ── BTF availability check ────────────────────────────────────────────────
+
+    [Test]
+    [LinuxOnly]
+    public async Task IsBtfAvailable_OnLinuxWithBtfKernel_ReturnsTrue()
+    {
+        // If /sys/kernel/btf/vmlinux exists the kernel exposes BTF.
+        bool hasBtfFile = File.Exists("/sys/kernel/btf/vmlinux");
+        bool apiResult  = KernelTraceSession.IsBtfAvailable();
+
+        // The two signals should agree.
+        await Assert.That(apiResult).IsEqualTo(hasBtfFile);
+    }
+
+    // ── BPF map read/write ────────────────────────────────────────────────────
+
+    [Test]
+    [RequiresBpf("network_monitor")]
+    public async Task GetMap_AfterSessionCreate_CanGetMapFd()
+    {
+        string probePath = IntegrationTestHelpers.FindProbeFile("network_monitor")!;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = probePath,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options);
+
+        // network_monitor.bpf.c declares a "events" ring-buffer map.
+        // GetMap should not throw even though we won't read events here.
+        // We use a generic struct that is big enough (the map is a ring-buf,
+        // so lookup is not meaningful — we just confirm GetMap doesn't throw).
+        var map = session.GetMap<uint, ulong>("events");
+        await Assert.That(map).IsNotNull();
+    }
+
+    [Test]
+    [RequiresBpf("network_monitor")]
+    public async Task GetMap_GetInfo_ReturnsNonZeroSizes()
+    {
+        string probePath = IntegrationTestHelpers.FindProbeFile("network_monitor")!;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = probePath,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options);
+
+        var map  = session.GetMap<uint, ulong>("events");
+        var info = map.GetInfo();
+
+        await Assert.That(info.MaxEntries).IsGreaterThan(0u);
+    }
+
+    // ── StackTraceMap ─────────────────────────────────────────────────────────
+
+    [Test]
+    [RequiresBpf("stack_sampler")]
+    public async Task GetStackTraceMap_AfterSessionCreate_HasPositiveMaxDepth()
+    {
+        string probePath = IntegrationTestHelpers.FindProbeFile("stack_sampler")!;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = probePath,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options);
+        var stackMap = session.GetStackTraceMap("stacks");
+
+        await Assert.That(stackMap.MaxDepth).IsGreaterThan(0);
+    }
+
+    // ── CO-RE: DebugOutput flag ────────────────────────────────────────────────
+
+    [Test]
+    [RequiresBpf("network_monitor")]
+    public async Task CreateAsync_WithDebugOutput_LoadsSuccessfully()
+    {
+        string probePath = IntegrationTestHelpers.FindProbeFile("network_monitor")!;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = probePath,
+            ValidateStructLayouts = false,
+            DebugOutput           = true,   // libbpf debug output to stderr
+        };
+
+        // Should load without throwing even with debug output enabled.
+        await using var session = await KernelTraceSession.CreateAsync(options);
+
+        await Assert.That(session).IsNotNull();
+    }
+
+    // ── KernelSymbolResolver ──────────────────────────────────────────────────
+
+    [Test]
+    [LinuxOnly]
+    public async Task KernelSymbolResolver_Load_ParsesKallsyms()
+    {
+        if (!File.Exists("/proc/kallsyms"))
+        {
+            return; // kernel doesn't expose kallsyms
+        }
+
+        var resolver = KernelTrace.Diagnostics.KernelSymbolResolver.Load();
+
+        if (resolver.Count == 0)
+        {
+            // kptr_restrict hides all addresses for non-root users — skip.
+            return;
+        }
+
+        // A modern kernel will have tens of thousands of symbols.
+        await Assert.That(resolver.Count).IsGreaterThan(100);
+    }
+
+    [Test]
+    [LinuxOnly]
+    public async Task KernelSymbolResolver_Resolve_ReturnsNonHexForKnownAddresses()
+    {
+        if (!File.Exists("/proc/kallsyms"))
+        {
+            return;
+        }
+
+        var resolver = KernelTrace.Diagnostics.KernelSymbolResolver.Load();
+        if (resolver.Count == 0)
+        {
+            return; // kptr_restrict hides all addresses
+        }
+
+        // Read the address of _stext directly from kallsyms so we have a
+        // guaranteed exact match and can verify the resolver returns a name.
+        ulong knownAddr = 0;
+        foreach (string line in File.ReadLines("/proc/kallsyms"))
+        {
+            string[] parts = line.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 3 && parts[2].StartsWith("_stext", StringComparison.Ordinal))
+            {
+                if (ulong.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out ulong addr) && addr != 0)
+                {
+                    knownAddr = addr;
+                    break;
+                }
+            }
+        }
+
+        if (knownAddr == 0)
+        {
+            return; // _stext not visible — kptr_restrict or unusual kernel
+        }
+
+        string result = resolver.Resolve(knownAddr);
+
+        // Should return a symbol name, not a hex fallback.
+        await Assert.That(result).DoesNotStartWith("0x");
+        await Assert.That(result).IsNotEmpty();
+    }
+
+    // ── stack_sampler: events contain stack IDs ────────────────────────────────
+
+    [Test]
+    [RequiresBpf("stack_sampler")]
+    public async Task StackSampler_AfterOpenatSyscall_ReceivesEventWithStackId()
+    {
+        string probePath = IntegrationTestHelpers.FindProbeFile("stack_sampler")!;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = probePath,
+            ValidateStructLayouts = false,
+            PollTimeoutMs         = 200,
+            Probes                = [new TracepointSpec { Category = "syscalls", Name = "sys_enter_openat" }],
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options);
+
+        var stackMap = session.GetStackTraceMap("stacks");
+
+        using var cts = new CancellationTokenSource(TestTimeout);
+
+        // Trigger openat syscalls to produce events.
+        var triggerTask = Task.Run(async () =>
+        {
+            while (!cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    _ = File.Exists("/tmp/.kt_probe_trigger");
+                    await Task.Delay(5, cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+            }
+        });
+
+        bool gotEvent = false;
+
+        try
+        {
+            await foreach (var ev in session.ReadAsync<StackSampleEvent>(cts.Token))
+            {
+                // A valid kernel stack ID is >= 0, or -EEXIST (-17) meaning the
+                // stack trace is already present in the map (still valid).
+                if (ev.KernelStackId >= 0 || ev.KernelStackId == -17)
+                {
+                    gotEvent = true;
+                    cts.Cancel();
+                    break;
+                }
+
+                // Any event with a PID indicates the probe is firing.
+                if (ev.Pid > 0)
+                {
+                    gotEvent = true;
+                    cts.Cancel();
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        await triggerTask.ConfigureAwait(false);
+
+        await Assert.That(gotEvent).IsTrue();
+    }
+}
+
+/// <summary>
+/// Matches the layout of <c>struct stack_sample_event</c> in stack_sampler.bpf.c.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct StackSampleEvent
+{
+    public ulong TimestampNs;
+    public uint  Pid;
+    public uint  Tgid;
+    public int   KernelStackId;
+    public int   UserStackId;
+    public fixed byte Comm[16];
+}

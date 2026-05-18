@@ -71,8 +71,11 @@ struct {
 
 /* ── GC start ─────────────────────────────────────────────────────────────── */
 
+/* BPF_UPROBE extracts arguments from arch-specific registers without
+ * requiring a complete 'struct user_pt_regs', making it portable across
+ * x86_64, arm64, and other supported BPF architectures. */
 SEC("uprobe/dotnet_gc_start")
-int handle_gc_start(struct pt_regs *ctx)
+int BPF_UPROBE(handle_gc_start, __u64 generation)
 {
     if (!kt_should_trace()) return 0;
 
@@ -89,7 +92,7 @@ int handle_gc_start(struct pt_regs *ctx)
     ev->duration_ns  = 0;
     ev->pid          = (__u32)(pid_tgid & 0xFFFFFFFF);
     ev->tgid         = (__u32)(pid_tgid >> 32);
-    ev->generation   = (__u32)PT_REGS_PARM1(ctx); /* CORINFO_FIELD_OFFSET or generation hint */
+    ev->generation   = (__u32)generation;
     ev->is_end       = 0;
     KT_COMM_READ(ev->comm, sizeof(ev->comm));
 
@@ -134,10 +137,10 @@ int handle_gc_end(struct pt_regs *ctx)
 
 /*
  * RealCOMPlusThrow(Object* throwable, ...)
- *   PT_REGS_PARM1 = throwable EE object pointer
+ *   First argument = throwable EE object pointer
  */
 SEC("uprobe/dotnet_exception_thrown")
-int handle_exception_thrown(struct pt_regs *ctx)
+int BPF_UPROBE(handle_exception_thrown, __u64 throwable)
 {
     if (!kt_should_trace()) return 0;
 
@@ -147,7 +150,7 @@ int handle_exception_thrown(struct pt_regs *ctx)
 
     __u64 pid_tgid = bpf_get_current_pid_tgid();
     ev->timestamp_ns   = kt_ktime_ns();
-    ev->exception_ptr  = PT_REGS_PARM1(ctx);
+    ev->exception_ptr  = throwable;
     ev->pid            = (__u32)(pid_tgid & 0xFFFFFFFF);
     ev->tgid           = (__u32)(pid_tgid >> 32);
     KT_COMM_READ(ev->comm, sizeof(ev->comm));
@@ -160,10 +163,10 @@ int handle_exception_thrown(struct pt_regs *ctx)
 
 /*
  * MethodCompiled(MethodDesc* pMD, ...)
- *   PT_REGS_PARM1 = MethodDesc pointer
+ *   First argument = MethodDesc pointer
  */
 SEC("uprobe/dotnet_method_jitted")
-int handle_method_jitted(struct pt_regs *ctx)
+int BPF_UPROBE(handle_method_jitted, __u64 method_desc)
 {
     if (!kt_should_trace()) return 0;
 
@@ -173,7 +176,7 @@ int handle_method_jitted(struct pt_regs *ctx)
 
     __u64 pid_tgid  = bpf_get_current_pid_tgid();
     ev->timestamp_ns  = kt_ktime_ns();
-    ev->method_handle = PT_REGS_PARM1(ctx);
+    ev->method_handle = method_desc;
     ev->pid           = (__u32)(pid_tgid & 0xFFFFFFFF);
     ev->tgid          = (__u32)(pid_tgid >> 32);
     KT_COMM_READ(ev->comm, sizeof(ev->comm));

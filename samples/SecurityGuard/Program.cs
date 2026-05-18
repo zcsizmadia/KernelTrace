@@ -43,11 +43,14 @@ await using var session = await KernelTraceSession.CreateAsync(new SessionOption
     Probes =
     [
         new TracepointSpec { Category = "syscalls", Name = "sys_enter_execve" },
+        new TracepointSpec { Category = "syscalls", Name = "sys_exit_execve"  },
     ],
     ChannelCapacity = 32_768,
     PollTimeoutMs   = 10,
 });
 
+try
+{
 await foreach (var ev in session.ReadAsync<ExecveEvent>(cts.Token))
 {
     unsafe
@@ -75,6 +78,8 @@ await foreach (var ev in session.ReadAsync<ExecveEvent>(cts.Token))
         }
     }
 }
+}
+catch (OperationCanceledException) { }
 
 Console.WriteLine($"\nMonitoring stopped. Total alerts: {alertCount}");
 
@@ -105,6 +110,9 @@ public unsafe partial struct ExecveEvent
 
     /// <summary>Process ID of the caller.</summary>
     public uint Pid;
+
+    /// <summary>Thread group ID (process ID as shown in /proc).</summary>
+    public uint Tgid;
 
     /// <summary>Parent process ID.</summary>
     public uint Ppid;

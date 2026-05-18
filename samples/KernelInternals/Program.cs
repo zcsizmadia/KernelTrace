@@ -97,6 +97,8 @@ var reportTask = Task.Run(async () =>
     }
 }, cts.Token);
 
+try
+{
 await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
 {
     var s = rawEvent.Span;
@@ -149,5 +151,8 @@ await foreach (var rawEvent in session.ReadRawAsync(cts.Token))
         }
     }
 }
+}
+catch (OperationCanceledException) { }
 
-await reportTask.ConfigureAwait(false);
+try { await reportTask.ConfigureAwait(false); }
+catch (OperationCanceledException) { }

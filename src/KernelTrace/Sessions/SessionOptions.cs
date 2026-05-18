@@ -86,4 +86,25 @@ public class SessionOptions
     /// </para>
     /// </summary>
     public bool CurrentProcessOnly { get; set; } = false;
+
+    /// <summary>
+    /// Optional path to a custom BTF (BPF Type Format) file to use instead of
+    /// the system <c>vmlinux</c> BTF when loading the eBPF object.
+    /// <para>
+    /// Useful for CO-RE (Compile Once — Run Everywhere) scenarios where the
+    /// host kernel's BTF data differs from the BTF embedded in the probe object,
+    /// or when running on a kernel that does not expose BTF via
+    /// <c>/sys/kernel/btf/vmlinux</c>.
+    /// </para>
+    /// When <see langword="null"/> the system BTF is used (default).
+    /// </summary>
+    public string? BtfCustomPath { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, libbpf debug output is written to
+    /// <c>stderr</c> during the session load phase.  Useful for diagnosing
+    /// CO-RE relocation or BTF issues.  Defaults to <see langword="false"/>.
+    /// </summary>
+    public bool DebugOutput { get; set; } = false;
 }
+

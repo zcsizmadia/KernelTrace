@@ -476,3 +476,224 @@ int kt_btf_struct_size(kt_session_t *session, const char *struct_name)
     btf__free(vmlinux_btf);
     return result;
 }
+
+/* ── BPF map operations ──────────────────────────────────────────────────── */
+
+KT_EXPORT
+int kt_map_get_fd(kt_session_t *session, const char *map_name,
+                  kt_error_t *error_out)
+{
+    if (!session || !map_name) {
+        if (error_out) *error_out = kt_error_from_errno(EINVAL);
+        return -EINVAL;
+    }
+
+    struct bpf_map *map = bpf_object__find_map_by_name(session->obj, map_name);
+    if (!map) {
+        if (error_out) {
+            error_out->code = -ENOENT;
+            snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                     "BPF map '%s' not found in loaded object", map_name);
+        }
+        return -ENOENT;
+    }
+
+    int fd = bpf_map__fd(map);
+    if (fd < 0) {
+        if (error_out) *error_out = kt_error_from_errno(-fd);
+    } else {
+        if (error_out) *error_out = kt_ok_result();
+    }
+    return fd;
+}
+
+KT_EXPORT
+kt_error_t kt_map_get_info(int map_fd, kt_map_info_t *info_out)
+{
+    if (!info_out) return kt_error_from_errno(EINVAL);
+
+    struct bpf_map_info info;
+    uint32_t info_len = sizeof(info);
+    memset(&info, 0, sizeof(info));
+
+    if (bpf_obj_get_info_by_fd(map_fd, &info, &info_len) < 0) {
+        return kt_error_from_errno(errno);
+    }
+
+    info_out->type        = info.type;
+    info_out->key_size    = info.key_size;
+    info_out->value_size  = info.value_size;
+    info_out->max_entries = info.max_entries;
+    return kt_ok_result();
+}
+
+KT_EXPORT
+int kt_map_lookup(int map_fd, const void *key, void *value_out)
+{
+    return bpf_map_lookup_elem(map_fd, key, value_out);
+}
+
+KT_EXPORT
+int kt_map_update(int map_fd, const void *key, const void *value,
+                  uint64_t flags)
+{
+    return bpf_map_update_elem(map_fd, key, value, flags);
+}
+
+KT_EXPORT
+int kt_map_delete(int map_fd, const void *key)
+{
+    return bpf_map_delete_elem(map_fd, key);
+}
+
+KT_EXPORT
+int kt_map_get_next_key(int map_fd, const void *key, void *next_key_out)
+{
+    return bpf_map_get_next_key(map_fd, key, next_key_out);
+}
+
+/* ── USDT probes ─────────────────────────────────────────────────────────── */
+
+KT_EXPORT
+kt_attachment_t *kt_attach_usdt(
+    kt_session_t *session,
+    int           pid,
+    const char   *binary_path,
+    const char   *usdt_provider,
+    const char   *usdt_name,
+    const char   *prog_section,
+    kt_error_t   *error_out)
+{
+    if (!session || !binary_path || !usdt_provider || !usdt_name) {
+        if (error_out) *error_out = kt_error_from_errno(EINVAL);
+        return NULL;
+    }
+
+    struct bpf_program *prog = NULL;
+
+    if (prog_section) {
+        /* Try by program (function) name first. */
+        prog = bpf_object__find_program_by_name(session->obj, prog_section);
+        if (!prog) {
+            /* Fall back to matching the section name. */
+            struct bpf_program *p;
+            bpf_object__for_each_program(p, session->obj) {
+                const char *sec = bpf_program__section_name(p);
+                if (sec && strcmp(sec, prog_section) == 0) {
+                    prog = p;
+                    break;
+                }
+            }
+        }
+        if (!prog) {
+            if (error_out) {
+                error_out->code = -ENOENT;
+                snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                         "BPF program '%s' not found", prog_section);
+            }
+            return NULL;
+        }
+    } else {
+        /* Find the first program whose section starts with "usdt". */
+        struct bpf_program *p;
+        bpf_object__for_each_program(p, session->obj) {
+            const char *sec = bpf_program__section_name(p);
+            if (sec && strncmp(sec, "usdt", 4) == 0) {
+                prog = p;
+                break;
+            }
+        }
+        if (!prog) {
+            if (error_out) {
+                error_out->code = -ENOENT;
+                snprintf(error_out->message, KT_MAX_ERROR_LEN,
+                         "No USDT BPF program found in loaded object");
+            }
+            return NULL;
+        }
+    }
+
+    struct bpf_link *link = bpf_program__attach_usdt(
+        prog, pid, binary_path, usdt_provider, usdt_name, NULL);
+
+    if (!link) {
+        if (error_out) *error_out = kt_error_from_errno(errno ? errno : EINVAL);
+        return NULL;
+    }
+
+    kt_attachment_t *att = calloc(1, sizeof(*att));
+    if (!att) {
+        bpf_link__destroy(link);
+        if (error_out) *error_out = kt_error_from_errno(ENOMEM);
+        return NULL;
+    }
+
+    att->link = link;
+    if (error_out) *error_out = kt_ok_result();
+    return att;
+}
+
+/* ── CO-RE / Extended session loading ───────────────────────────────────── */
+
+KT_EXPORT
+kt_session_t *kt_session_load_ext(const char              *path,
+                                   const kt_session_opts_t *opts,
+                                   kt_error_t              *error_out)
+{
+    if (!path) {
+        if (error_out) *error_out = kt_error_from_errno(EINVAL);
+        return NULL;
+    }
+
+    /* Restore default stderr printing when debug output is requested. */
+    if (opts && opts->debug_output) {
+        libbpf_set_print(NULL);
+    }
+
+    struct bpf_object_open_opts open_opts;
+    memset(&open_opts, 0, sizeof(open_opts));
+    open_opts.sz = sizeof(open_opts);
+    if (opts && opts->btf_custom_path) {
+        open_opts.btf_custom_path = opts->btf_custom_path;
+    }
+
+    struct bpf_object *obj = bpf_object__open_file(path, &open_opts);
+    if (!obj) {
+        if (error_out) *error_out = kt_error_from_errno(errno ? errno : EINVAL);
+        if (opts && opts->debug_output) libbpf_set_print(libbpf_silent_print);
+        return NULL;
+    }
+
+    if (bpf_object__load(obj) < 0) {
+        int err = errno;
+        bpf_object__close(obj);
+        if (error_out) *error_out = kt_error_from_errno(err ? err : EINVAL);
+        if (opts && opts->debug_output) libbpf_set_print(libbpf_silent_print);
+        return NULL;
+    }
+
+    /* Re-suppress output for subsequent operations. */
+    if (opts && opts->debug_output) {
+        libbpf_set_print(libbpf_silent_print);
+    }
+
+    kt_session_t *session = calloc(1, sizeof(*session));
+    if (!session) {
+        bpf_object__close(obj);
+        if (error_out) *error_out = kt_error_from_errno(ENOMEM);
+        return NULL;
+    }
+
+    session->obj = obj;
+    if (error_out) *error_out = kt_ok_result();
+    return session;
+}
+
+KT_EXPORT
+int kt_btf_available(void)
+{
+    struct btf *btf = btf__load_vmlinux_btf();
+    if (!btf) return 0;
+    btf__free(btf);
+    return 1;
+}
