@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Generate vmlinux.h from kernel BTF
+      - name: Install bpftool
         run: |
           sudo apt-get update -y
           sudo apt-get install -y git make gcc pkg-config libelf-dev libcap-dev zlib1g-dev binutils-dev llvm
@@ -32,9 +32,13 @@ jobs:
           pushd bpftool/src
           sudo make install -j$(nproc)
           popd
+
+      - name: Generate vmlinux.h from kernel BTF
+        run: |
           # BTF dump reads /sys/kernel/btf/vmlinux — no kernel-version match needed.
-          bpftool btf dump file /sys/kernel/btf/vmlinux format c \
-            > native/probes/vmlinux.h
+          #bpftool btf dump file /sys/kernel/btf/vmlinux format c > native/probes/vmlinux.h
+
+          ./native/scripts/gen-vmlinux.sh
 
       - name: Upload vmlinux.h
         uses: actions/upload-artifact@v7
