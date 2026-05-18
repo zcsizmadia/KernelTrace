@@ -204,6 +204,112 @@ uint64_t kt_get_page_size(void);
  */
 int kt_btf_struct_size(kt_session_t *session, const char *struct_name);
 
+/* ── BPF map operations ──────────────────────────────────────────────────── */
+
+/** Metadata returned by @c kt_map_get_info. */
+typedef struct kt_map_info {
+    uint32_t type;        /**< BPF map type (BPF_MAP_TYPE_*). */
+    uint32_t key_size;    /**< Size of one key in bytes. */
+    uint32_t value_size;  /**< Size of one value in bytes. */
+    uint32_t max_entries; /**< Maximum number of entries. */
+} kt_map_info_t;
+
+/**
+ * Returns the file descriptor of any named BPF map in the loaded session.
+ * Unlike @c kt_get_ringbuf_fd this works for any map type.
+ *
+ * @param session   Active session.
+ * @param map_name  Map name as declared in the BPF source (e.g. @c "stacks").
+ * @param error_out Receives error details on failure; may be NULL.
+ * @return          A valid fd >= 0, or a negative errno on error.
+ */
+int kt_map_get_fd(kt_session_t *session, const char *map_name,
+                  kt_error_t *error_out);
+
+/**
+ * Queries the kernel for map metadata (type, key/value sizes, max entries).
+ *
+ * @param map_fd   File descriptor of the BPF map.
+ * @param info_out Receives the map metadata on success; must not be NULL.
+ * @return         Error descriptor (code == 0 on success).
+ */
+kt_error_t kt_map_get_info(int map_fd, kt_map_info_t *info_out);
+
+/**
+ * Looks up a single entry in a BPF map.
+ * Returns 0 on success, -ENOENT if the key does not exist.
+ */
+int kt_map_lookup(int map_fd, const void *key, void *value_out);
+
+/**
+ * Inserts or updates an entry in a BPF map.
+ * @p flags: 0 = any, @c BPF_NOEXIST = insert only, @c BPF_EXIST = update only.
+ * Returns 0 on success.
+ */
+int kt_map_update(int map_fd, const void *key, const void *value,
+                  uint64_t flags);
+
+/**
+ * Deletes an entry from a BPF map.
+ * Returns 0 on success, -ENOENT if the key did not exist.
+ */
+int kt_map_delete(int map_fd, const void *key);
+
+/**
+ * Iterates map keys in no particular order.
+ * Pass NULL for @p key to get the first key.
+ * Returns 0 on success, -ENOENT when there are no more keys.
+ */
+int kt_map_get_next_key(int map_fd, const void *key, void *next_key_out);
+
+/* ── USDT probes ─────────────────────────────────────────────────────────── */
+
+/**
+ * Attaches a BPF program to a USDT (Userland Statically Defined Trace) probe.
+ *
+ * Requires libbpf >= 1.0. The BPF program section must start with @c "usdt".
+ *
+ * @param session       Active session.
+ * @param pid           Process ID to trace, or -1 for all processes.
+ * @param binary_path   Absolute path to the binary containing the USDT probe.
+ * @param usdt_provider USDT provider name (e.g. @c "python").
+ * @param usdt_name     USDT probe name (e.g. @c "function__entry").
+ * @param prog_section  BPF program function name; NULL = first usdt program.
+ * @param error_out     Receives error details on failure; may be NULL.
+ * @return              Attachment handle, or NULL on failure.
+ */
+kt_attachment_t *kt_attach_usdt(
+    kt_session_t *session,
+    int           pid,
+    const char   *binary_path,
+    const char   *usdt_provider,
+    const char   *usdt_name,
+    const char   *prog_section,
+    kt_error_t   *error_out);
+
+/* ── CO-RE / Extended session loading ───────────────────────────────────── */
+
+/** Extended options for @c kt_session_load_ext. Pass NULL for defaults. */
+typedef struct kt_session_opts {
+    const char *btf_custom_path; /**< Path to a custom BTF file, or NULL. */
+    int         debug_output;    /**< Non-zero to enable libbpf debug output. */
+} kt_session_opts_t;
+
+/**
+ * Like @c kt_session_load but accepts extended CO-RE options.
+ * When @p opts is NULL, behaves identically to @c kt_session_load.
+ */
+kt_session_t *kt_session_load_ext(const char              *path,
+                                   const kt_session_opts_t *opts,
+                                   kt_error_t              *error_out);
+
+/**
+ * Checks whether vmlinux BTF is available on the running kernel.
+ *
+ * @return 1 if @c /sys/kernel/btf/vmlinux is present and readable, 0 otherwise.
+ */
+int kt_btf_available(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -330,8 +330,152 @@ dotnet run
 # From the repo root — run each sample for 10 seconds then stop
 for sample in NetworkMonitor SchedulerProfiler SecurityGuard FileIoMonitor \
               BlockIoAnalyzer MemoryProfiler KernelInternals ContainerMonitor \
-              DotNetRuntime; do
+              DotNetRuntime StackSampler UsdtPythonTracer CoreRelocations; do
     echo "=== $sample ==="
     timeout 10 dotnet run --project "samples/$sample" || true
 done
+```
+
+---
+
+## StackSampler  *(New — Feature 3)*
+
+**Path:** `samples/StackSampler/`  
+**Probe:** `stack_sampler.bpf.o`
+
+Captures kernel and user-space stack traces on every `openat()` syscall and
+symbolizes kernel frames in real time using `/proc/kallsyms`.  Stops after 20
+events.
+
+### Run
+
+```bash
+cd samples/StackSampler
+dotnet run
+```
+
+### What it demonstrates
+
+- `KernelTraceSession.GetStackTraceMap("stacks")` — opens a
+  `BPF_MAP_TYPE_STACK_TRACE` map.
+- `StackTraceMap.Lookup(stackId)` — retrieves an array of instruction pointers
+  for a given stack ID.
+- `KernelSymbolResolver.Load()` — loads `/proc/kallsyms` for kernel frame
+  symbolization.
+- `KernelSymbolResolver.ResolveStack(frames)` — maps `ulong[]` addresses to
+  `string[]` symbol names.
+
+### Key probe config
+
+```csharp
+Probes = [new TracepointSpec { Category = "syscalls", Name = "sys_enter_openat" }],
+```
+
+### Requirements
+
+- `/proc/kallsyms` read access (usually requires root or `CAP_SYSLOG`).
+- `BPF_MAP_TYPE_STACK_TRACE` support (kernel ≥ 4.9).
+
+---
+
+## UsdtPythonTracer  *(New — Feature 2)*
+
+**Path:** `samples/UsdtPythonTracer/`  
+**Probe:** `usdt_python.bpf.o`
+
+Attaches to Python 3's built-in `function__entry` USDT probe and prints every
+Python function call — filename, function name, and line number — in real time.
+
+Optionally set the `PYTHON_PID` environment variable to restrict tracing to a
+single Python process.
+
+### Run
+
+```bash
+# In one terminal: run any Python script
+python3 -c "import http.server; http.server.test()"
+
+# In another terminal:
+cd samples/UsdtPythonTracer
+PYTHON_PID=$(pgrep python3) dotnet run
+```
+
+### What it demonstrates
+
+- `UsdtSpec` — attaching to a USDT probe point by provider and probe name.
+- `UsdtSpec.Pid` — filtering by a specific process ID (`-1` = all processes).
+- `UsdtSpec.ProgramSection` — specifying the BPF program section that handles
+  the USDT tracepoint.
+- Reading `char[64]` C-string fields (`filename`, `funcname`) from BPF events.
+
+### Key probe config
+
+```csharp
+new UsdtSpec
+{
+    BinaryPath     = "/usr/bin/python3",
+    Provider       = "python",
+    Name           = "function__entry",
+    ProgramSection = "usdt/python:function__entry",
+    Pid            = targetPid,  // -1 for all processes
+}
+```
+
+### Requirements
+
+- Python 3 compiled with USDT probes (package `python3-dbg` on Debian/Ubuntu,
+  or build with `--enable-dtrace`).
+- Check with: `readelf -n /usr/bin/python3 | grep -i sdt`
+
+---
+
+## CoreRelocations  *(New — Feature 6)*
+
+**Path:** `samples/CoreRelocations/`  
+**Probe:** `network_monitor.bpf.o`
+
+Demonstrates CO-RE (Compile Once – Run Everywhere) support:
+
+- Calls `KernelTraceSession.IsBtfAvailable()` to check whether the kernel
+  exposes BTF.
+- Reads the `BTF_PATH` environment variable to optionally supply a custom BTF
+  archive (useful on older kernels or container images without BTF).
+- Reads `KT_DEBUG=1` to enable verbose libbpf loader logging.
+
+The sample then runs the same `network_monitor` probe as the `NetworkMonitor`
+sample — the key difference is the `SessionOptions` configuration.
+
+### Run
+
+```bash
+cd samples/CoreRelocations
+
+# Normal CO-RE (kernel has BTF):
+dotnet run
+
+# Custom BTF archive (kernel lacks BTF):
+BTF_PATH=/path/to/vmlinux-5.15.btf dotnet run
+
+# Verbose libbpf output:
+KT_DEBUG=1 dotnet run
+```
+
+### What it demonstrates
+
+- `KernelTraceSession.IsBtfAvailable()` — static runtime BTF check.
+- `SessionOptions.BtfCustomPath` — path to an alternative BTF archive (e.g.
+  from [BTFHub](https://github.com/aquasecurity/btfhub)).
+- `SessionOptions.DebugOutput` — enables `libbpf_set_print` verbose output for
+  troubleshooting loader errors.
+
+### Key session config
+
+```csharp
+new SessionOptions
+{
+    ProbePath     = "network_monitor.bpf.o",
+    BtfCustomPath = Environment.GetEnvironmentVariable("BTF_PATH"),
+    DebugOutput   = Environment.GetEnvironmentVariable("KT_DEBUG") == "1",
+    ...
+}
 ```

@@ -223,6 +223,174 @@ public sealed class KernelTraceSessionTests
         await Assert.That(fake.AttachedProbes.Count).IsEqualTo(countBefore + 1);
         await Assert.That(fake.AttachedProbes).Contains("kprobe/tcp_retransmit_skb");
     }
+
+    // ── USDT probe attachment ─────────────────────────────────────────────────
+
+    [Test]
+    public async Task CreateAsync_AttachesUsdtSpec()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+            Probes =
+            [
+                new UsdtSpec
+                {
+                    BinaryPath = "/usr/bin/python3",
+                    Provider   = "python",
+                    Name       = "function__entry",
+                },
+            ],
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+
+        await Assert.That(fake.AttachedProbes).Contains("usdt:python:function__entry");
+    }
+
+    [Test]
+    public async Task AttachAsync_UsdtSpec_RecordsAttachment()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+
+        int before = fake.AttachedProbes.Count;
+        await session.AttachAsync(new UsdtSpec
+        {
+            BinaryPath = "/usr/lib/libfoo.so",
+            Provider   = "foo",
+            Name       = "bar",
+        });
+
+        await Assert.That(fake.AttachedProbes.Count).IsEqualTo(before + 1);
+        await Assert.That(fake.AttachedProbes).Contains("usdt:foo:bar");
+    }
+
+    // ── CO-RE session options ─────────────────────────────────────────────────
+
+    [Test]
+    public async Task CreateAsync_WithBtfCustomPath_PassesPathToInterop()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+            BtfCustomPath         = "/path/to/custom.btf",
+        };
+
+        // CreateAsync should not throw — FakeNativeInterop ignores the path.
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+
+        await Assert.That(session).IsNotNull();
+    }
+
+    [Test]
+    public async Task CreateAsync_WithDebugOutput_DoesNotThrow()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+            DebugOutput           = true,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+
+        await Assert.That(session).IsNotNull();
+    }
+
+    // ── GetMap ────────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task GetMap_ReturnsMapWithCorrectName()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        fake.MapInfos[100] = new NativeMapInfo
+        {
+            Type = 1, KeySize = 4, ValueSize = 8, MaxEntries = 1024,
+        };
+        fake.MapFds["counts"] = 100;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+        var map = session.GetMap<uint, ulong>("counts");
+
+        await Assert.That(map.Name).IsEqualTo("counts");
+    }
+
+    [Test]
+    public async Task GetMap_CanReadWriteViaFakeInterop()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+        var map = session.GetMap<uint, ulong>("mycounts");
+
+        map.Update(1u, 42UL);
+        bool found = map.TryLookup(1u, out ulong val);
+
+        await Assert.That(found).IsTrue();
+        await Assert.That(val).IsEqualTo(42UL);
+    }
+
+    // ── GetStackTraceMap ──────────────────────────────────────────────────────
+
+    [Test]
+    public async Task GetStackTraceMap_ReturnsMapWithCorrectMaxDepth()
+    {
+        var fake = new FakeNativeInterop();
+        using var tmpFile = new TempProbeFile();
+
+        // 127 depth × 8 bytes = 1016 bytes value size
+        fake.MapInfos[200] = new NativeMapInfo
+        {
+            Type = 27, KeySize = 4, ValueSize = 1016, MaxEntries = 8192,
+        };
+        fake.MapFds["stacks"] = 200;
+
+        var options = new SessionOptions
+        {
+            ProbePath             = tmpFile.Path,
+            ValidateStructLayouts = false,
+        };
+
+        await using var session = await KernelTraceSession.CreateAsync(options, fake);
+        var stackMap = session.GetStackTraceMap();
+
+        await Assert.That(stackMap.MaxDepth).IsEqualTo(127);
+    }
 }
 
 // ── Test helpers ──────────────────────────────────────────────────────────────

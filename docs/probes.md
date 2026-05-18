@@ -633,3 +633,68 @@ cat /sys/kernel/debug/tracing/events/syscalls/sys_enter_connect/format
 # Searchable kernel symbol list
 grep tcp /proc/kallsyms | grep " T " | head -20
 ```
+
+---
+
+## USDT probes  *(Feature 2)*
+
+User Statically Defined Tracing (USDT) probes are `dtrace`-style probe points
+compiled into user-space binaries.  They are implemented as NOP instructions
+decorated with ELF notes (`.note.stapsdt`), and activated dynamically by the
+kernel via uprobes.
+
+Common binaries with USDT probes: Python 3, Node.js, Java (HotSpot), MySQL,
+PostgreSQL, Ruby, and any binary built with SystemTap or DTrace support.
+
+### Authoring the BPF probe
+
+Declare a section matching the USDT provider and probe name:
+
+```c
+#include "vmlinux.h"
+#include <bpf/bpf_helpers.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/usdt.bpf.h>
+
+SEC("usdt/python:function__entry")
+int handle_python_function_entry(struct pt_regs *ctx)
+{
+    // pt_regs argument registers hold USDT probe arguments:
+    // arg1 = ctx->di, arg2 = ctx->si, arg3 = ctx->dx (x86-64)
+    return 0;
+}
+```
+
+### Attaching with `UsdtSpec`
+
+```csharp
+new UsdtSpec
+{
+    BinaryPath     = "/usr/bin/python3",   // path to the binary with USDT probes
+    Provider       = "python",             // SDT provider name
+    Name           = "function__entry",    // SDT probe name
+    ProgramSection = "usdt/python:function__entry",  // BPF section name
+    Pid            = -1,                   // -1 = all PIDs; set to filter
+}
+```
+
+The `BinaryPath` must be the full path to the binary (or shared library)
+that contains the USDT probe notes.  The `Provider` and `Name` must match
+the SDT note names embedded in the binary.
+
+### Listing USDT probes in a binary
+
+```bash
+# Requires binutils or elfutils
+readelf -n /usr/bin/python3 | grep -A 3 "NT_STAPSDT"
+
+# Or with bpftrace:
+bpftrace -l 'usdt:/usr/bin/python3:*'
+```
+
+### Requirements
+
+- Linux kernel ≥ 4.20 with uprobe support.
+- `libbpf` ≥ 0.8 (for the `usdt.bpf.h` helper).
+- The target binary must be compiled with USDT probes.
+- `CAP_BPF` + `CAP_PERFMON` (or root).

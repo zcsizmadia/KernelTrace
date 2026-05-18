@@ -18,16 +18,7 @@ internal sealed class LibBpfInterop : INativeInterop
     private LibBpfInterop() { }
 
     // ── Session ──────────────────────────────────────────────────────────────
-
-    public KernelProbeHandle LoadSession(string objPath)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(objPath);
-
-        var handle = NativeMethods.SessionLoad(objPath, out var err);
-        err.ThrowIfError();
-
-        return new KernelProbeHandle(handle);
-    }
+    // LoadSession is implemented further down with CO-RE options support.
 
     // ── Probe attachment ─────────────────────────────────────────────────────
 
@@ -115,6 +106,8 @@ internal sealed class LibBpfInterop : INativeInterop
     public int GetBtfStructSize(KernelProbeHandle session, string structName) =>
         NativeMethods.BtfStructSize(session.DangerousGetHandle(), structName);
 
+    public bool IsBtfAvailable() => NativeMethods.BtfAvailable() != 0;
+
     // ── Per-process filter ────────────────────────────────────────────────────
 
     public void SetTgidFilter(KernelProbeHandle session, uint tgid)
@@ -122,4 +115,83 @@ internal sealed class LibBpfInterop : INativeInterop
         NativeMethods.SetTgidFilter(session.DangerousGetHandle(), tgid, out var err);
         err.ThrowIfError();
     }
+
+    // ── CO-RE / extended session load ─────────────────────────────────────────
+
+    public KernelProbeHandle LoadSession(string objPath,
+        string? btfCustomPath = null, bool debugOutput = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(objPath);
+
+        if (btfCustomPath is null && !debugOutput)
+        {
+            // Fast path: no extended options needed.
+            var h = NativeMethods.SessionLoad(objPath, out var e);
+            e.ThrowIfError();
+            return new KernelProbeHandle(h);
+        }
+
+        byte[]? btfBytes = btfCustomPath is null
+            ? null
+            : System.Text.Encoding.UTF8.GetBytes(btfCustomPath + '\0');
+
+        unsafe
+        {
+            fixed (byte* btfPtr = btfBytes)
+            {
+                var opts = new NativeSessionOpts
+                {
+                    BtfCustomPathPtr = btfBytes is null ? nint.Zero : (nint)btfPtr,
+                    DebugOutput      = debugOutput ? 1 : 0,
+                };
+                var handle = NativeMethods.SessionLoadExt(objPath, in opts, out var err);
+                err.ThrowIfError();
+                return new KernelProbeHandle(handle);
+            }
+        }
+    }
+
+    // ── USDT probes ───────────────────────────────────────────────────────────
+
+    public AttachmentHandle AttachUsdt(KernelProbeHandle session, int pid,
+        string binaryPath, string provider, string name, string? programSection = null)
+    {
+        var ptr = NativeMethods.AttachUsdt(
+            session.DangerousGetHandle(), pid, binaryPath, provider, name,
+            programSection, out var err);
+
+        if (err.IsError)
+            throw new Exceptions.ProbeAttachException(
+                $"usdt:{provider}:{name}", err.Message);
+
+        return new AttachmentHandle(ptr);
+    }
+
+    // ── BPF map operations ────────────────────────────────────────────────────
+
+    public int MapGetFd(KernelProbeHandle session, string mapName)
+    {
+        int fd = NativeMethods.MapGetFd(session.DangerousGetHandle(), mapName, out var err);
+        err.ThrowIfError();
+        return fd;
+    }
+
+    public NativeMapInfo MapGetInfo(int mapFd)
+    {
+        var err = NativeMethods.MapGetInfo(mapFd, out var info);
+        err.ThrowIfError();
+        return info;
+    }
+
+    public unsafe int MapLookup(int mapFd, nint keyPtr, nint valuePtr) =>
+        NativeMethods.MapLookup(mapFd, (void*)keyPtr, (void*)valuePtr);
+
+    public unsafe int MapUpdate(int mapFd, nint keyPtr, nint valuePtr, ulong flags) =>
+        NativeMethods.MapUpdate(mapFd, (void*)keyPtr, (void*)valuePtr, flags);
+
+    public unsafe int MapDelete(int mapFd, nint keyPtr) =>
+        NativeMethods.MapDelete(mapFd, (void*)keyPtr);
+
+    public unsafe int MapGetNextKey(int mapFd, nint currentKeyPtr, nint nextKeyPtr) =>
+        NativeMethods.MapGetNextKey(mapFd, (void*)currentKeyPtr, (void*)nextKeyPtr);
 }
