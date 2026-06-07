@@ -40,7 +40,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Code Quality">
-    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.93" />
+    <PackageVersion Include="Meziantou.Analyzer" Version="3.0.101" />
   </ItemGroup>
 
   <ItemGroup Label="CLI">
