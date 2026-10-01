@@ -22,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     name: Generate vmlinux.h (${{ matrix.arch }})
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install bpftool
         run: |
@@ -77,7 +77,7 @@ jobs:
         if: matrix.runtimeId == 'linux-musl-arm64'
         uses: laverdet/alpine-arm64@v1
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download vmlinux.h
         uses: actions/download-artifact@v8
@@ -147,7 +147,7 @@ jobs:
     name: Build NuGet package
     if: always() && needs.build.result == 'success'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install .NET SDKs
         uses: actions/setup-dotnet@v5
