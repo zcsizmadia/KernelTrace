@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup Label="Testing — TUnit 1.44.*">
-    <PackageVersion Include="TUnit"                  Version="1.44.39" />
+    <PackageVersion Include="TUnit"                  Version="1.87.12" />
     <PackageVersion Include="TUnit.Core"             Version="1.44.39" />
     <PackageVersion Include="TUnit.Assertions"       Version="1.44.39" />
     <PackageVersion Include="TUnit.Engine"           Version="1.44.39" />
